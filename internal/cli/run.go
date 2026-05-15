@@ -448,6 +448,11 @@ func (s agentInstallStep) ID() string {
 }
 
 func (s agentInstallStep) Run() error {
+	switch s.agent {
+	case model.AgentClaudeCode, model.AgentOpenCode:
+		return nil
+	}
+
 	adapter, err := agents.NewAdapter(s.agent)
 	if err != nil {
 		return fmt.Errorf("create adapter for %q: %w", s.agent, err)
