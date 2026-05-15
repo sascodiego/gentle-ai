@@ -34,16 +34,26 @@ var claudeCodeOverlayJSON = []byte(`{
 `)
 
 // openCodeOverlayJSON uses the OpenCode "permission" key with bash/read granularity.
+// bash defaults to "ask" so the user approves each command before execution.
+// edit defaults to "ask" so the user approves each file modification.
 var openCodeOverlayJSON = []byte(`{
   "permission": {
     "bash": {
-      "*": "allow",
-      "git commit *": "ask",
-      "git push *": "ask",
-      "git push": "ask",
-      "git push --force *": "ask",
-      "git rebase *": "ask",
-      "git reset --hard *": "ask"
+      "*": "ask",
+      "go test *": "allow",
+      "go build *": "allow",
+      "go vet *": "allow",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "git branch*": "allow",
+      "ls *": "allow",
+      "cat *": "allow",
+      "head *": "allow",
+      "rg *": "allow"
+    },
+    "edit": {
+      "*": "ask"
     },
     "read": {
       "*": "allow",
@@ -53,6 +63,9 @@ var openCodeOverlayJSON = []byte(`{
       "**/.env.*": "deny",
       "**/secrets/**": "deny",
       "**/credentials.json": "deny"
+    },
+    "external_directory": {
+      "*": "ask"
     }
   }
 }
