@@ -26,17 +26,17 @@ Gentle AI detects the `pi` binary first. If Pi is the only selected agent, the i
 Gentle AI runs exactly these Pi setup steps:
 
 ```bash
-pi install npm:gentle-pi
-pi install npm:gentle-engram
-pi install npm:pi-mcp-adapter
-npm exec --yes --package gentle-engram@0.1.4 -- pi-engram init
-pi install npm:pi-subagents
-pi install npm:pi-intercom
-pi install npm:@juicesharp/rpiv-ask-user-question
-pi install npm:pi-web-access
-pi install npm:pi-lens
-pi install npm:@juicesharp/rpiv-todo
-pi install npm:pi-btw
+pi install gentle-pi
+pi install gentle-engram
+pi install pi-mcp-adapter
+pnpm dlx --package gentle-engram@0.1.4 -- pi-engram init
+pi install pi-subagents
+pi install pi-intercom
+pi install @juicesharp/rpiv-ask-user-question
+pi install pi-web-access
+pi install pi-lens
+pi install @juicesharp/rpiv-todo
+pi install pi-btw
 ```
 
 | Package                                                  | What it adds                                                                                                              |
@@ -56,12 +56,12 @@ pi install npm:pi-btw
 `gentle-pi` owns Pi's runtime behavior. Its current harness enforces parent-only delegation triggers: delegate exploration after 4+ files, use one writer for multi-file changes, require fresh review before PRs, run fresh audits after incidents, and pause long monolithic sessions before they drift.
 
 The real Engram component is provisioned separately by Gentle AI so `gentle-engram` has an Engram runtime to talk to.
-During that Engram provisioning step, Gentle AI declares `npm:pi-mcp-adapter` in Pi's agent settings and adds the npm dependency. Existing unrelated Pi settings, package entries, and npm dependencies are preserved.
+During that Engram provisioning step, Gentle AI declares `pi-mcp-adapter` in Pi's agent settings and adds the npm dependency. Existing unrelated Pi settings, package entries, and npm dependencies are preserved.
 
 Files updated by Gentle AI's Engram provisioning:
 
 ```text
-.pi/agent/settings.json    # packages includes npm:pi-mcp-adapter
+.pi/agent/settings.json    # packages includes pi-mcp-adapter
 .pi/npm/package.json       # dependencies.pi-mcp-adapter = ^2.6.0
 ```
 

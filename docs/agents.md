@@ -105,7 +105,7 @@ Kiro uses native custom agents in `~/.kiro/agents/`. `gentle-ai` writes 10 phase
 - Uses the OpenCode-compatible adapter: `AGENTS.md`, `skills/`, `commands/`, and `opencode.json` live under `~/.config/kilo`
 - Full SDD delegation is provided by the merged multi-agent overlay in `~/.config/kilo/opencode.json`, not by a separate native sub-agent directory
 - MCP servers are merged into `opencode.json`; Engram uses the OpenCode-style local MCP entry with `command` as an array
-- Auto-install is supported via npm: `npm install -g @kilocode/cli`
+- Auto-install is supported via pnpm: `pnpm install -g @kilocode/cli`
 
 ### Gemini CLI
 
@@ -176,7 +176,7 @@ Kiro uses native custom agents in `~/.kiro/agents/`. `gentle-ai` writes 10 phase
 - **MCP config**: `~/.qwen/settings.json` (managed via `StrategyMergeIntoSettings` with `mcpServers` key)
 - **Slash commands**: `~/.qwen/commands/*.md` — supports custom namespaced slash commands (e.g., `commands/sdd/init.md` → `/sdd:init`)
 - **Permissions**: `auto_edit` mode — auto-approves file edits, manual approval for shell commands
-- **Install**: via npm — `npm install -g @qwen-code/qwen-code@latest`
+- **Install**: via pnpm — `pnpm install -g @qwen-code/qwen-code@latest`
 - **Engram slug**: `"qwen-code"` for `engram setup` integration
 - **SDD orchestrator**: `internal/assets/qwen/sdd-orchestrator.md` with Qwen-specific path references
 
@@ -195,23 +195,23 @@ For the full Pi command and package reference, see [Pi Agent](pi.md).
 
 - **Detection**: gentle-ai detects Pi from the `pi` binary on `PATH` and its config root at `~/.pi`.
 - **Install**: Pi must already be installed. gentle-ai then installs the full Pi support stack with:
-  - `pi install npm:gentle-pi`
-  - `pi install npm:gentle-engram`
-  - `pi install npm:pi-mcp-adapter`
-  - `npm exec --yes --package gentle-engram@0.1.4 -- pi-engram init`
-  - `pi install npm:pi-subagents`
-  - `pi install npm:pi-intercom`
-  - `pi install npm:@juicesharp/rpiv-ask-user-question`
-  - `pi install npm:pi-web-access`
-  - `pi install npm:pi-lens`
-  - `pi install npm:@juicesharp/rpiv-todo`
-  - `pi install npm:pi-btw`
+  - `pi install gentle-pi`
+  - `pi install gentle-engram`
+  - `pi install pi-mcp-adapter`
+  - `pnpm dlx --package gentle-engram@0.1.4 -- pi-engram init`
+  - `pi install pi-subagents`
+  - `pi install pi-intercom`
+  - `pi install @juicesharp/rpiv-ask-user-question`
+  - `pi install pi-web-access`
+  - `pi install pi-lens`
+  - `pi install @juicesharp/rpiv-todo`
+  - `pi install pi-btw`
 - **`gentle-pi` package**: adds the Gentleman harness for Pi: SDD/OpenSpec workflow, strict TDD guidance, safety defaults, `/gentle-ai:*` commands, skill assets, prompts, SDD agents, and SDD chains. On normal `session_start`, it copies project assets into `.pi/agents/`, `.pi/chains/`, and `.pi/gentle-ai/support/` without overwriting local files unless the Pi recovery command uses `--force`. Starting Pi with `pi -ns` skips startup skill loading/hooks, so that automatic refresh does not run in that mode.
 - **Package metadata**: latest verified `gentle-pi` version is `0.2.6`; npm lists `alan_buscaglia` as maintainer, with source at [Gentleman-Programming/gentle-pi](https://github.com/Gentleman-Programming/gentle-pi) and package docs at [npm: gentle-pi](https://www.npmjs.com/package/gentle-pi).
 - **Persona command**: `gentle-pi` owns Pi persona switching through `/gentleman:persona` (`/gentle-ai:persona` remains a compatibility alias). It switches between `gentleman` and `neutral`, saves `.pi/gentle-ai/persona.json`, and may require `/reload` or a new Pi session for the active prompt to refresh.
 - **Model assignment command**: `gentle-pi` owns Pi model selection through `/gentleman:models` (`/gentle-ai:models` remains a compatibility alias). It opens a Pi-native modal for project, user, and built-in agents, prioritizes SDD agents, saves `.pi/gentle-ai/models.json`, and applies overrides into `.pi/agents/*.md` or `.pi/settings.json`.
 - **`gentle-engram` package**: adds persistent Engram memory for Pi. It captures sessions, exposes Engram MCP tools through `pi-mcp-adapter`, and degrades safely when the local `engram` binary is missing.
-- **MCP adapter wiring**: ComponentEngram declares `npm:pi-mcp-adapter` in `.pi/agent/settings.json` packages and adds `pi-mcp-adapter` `^2.6.0` to `.pi/npm/package.json` without removing unrelated user entries. `pi-engram init` owns the Pi Engram MCP config schema and is run during installation.
+- **MCP adapter wiring**: ComponentEngram declares `pi-mcp-adapter` in `.pi/agent/settings.json` packages and adds `pi-mcp-adapter` `^2.6.0` to `.pi/npm/package.json` without removing unrelated user entries. `pi-engram init` owns the Pi Engram MCP config schema and is run during installation.
 - **`pi-subagents` package**: discovers and runs SDD agents from `.pi/agents/`.
 - **`pi-intercom` package**: lets Pi child agents ask the parent session for decisions while a chain is running.
 - **`@juicesharp/rpiv-ask-user-question` package**: lets Pi child agents ask the active user session for clarification when they need human input.
