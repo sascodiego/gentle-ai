@@ -232,7 +232,7 @@ func TestInjectPiProvisioningCreatesMissingMCPAdapterFiles(t *testing.T) {
 	}
 
 	settings := readJSONFile(t, filepath.Join(home, ".pi", "agent", "settings.json"))
-	assertNestedStrings(t, settings, []string{"npm:pi-mcp-adapter"}, "packages")
+	assertNestedStrings(t, settings, []string{"pi-mcp-adapter"}, "packages")
 
 	npmPackage := readJSONFile(t, filepath.Join(home, ".pi", "npm", "package.json"))
 	assertNestedString(t, npmPackage, "^2.6.0", "dependencies", "pi-mcp-adapter")
@@ -250,7 +250,7 @@ func TestInjectPiProvisioningPreservesUnrelatedContent(t *testing.T) {
 
 	settings := readJSONFile(t, filepath.Join(home, ".pi", "agent", "settings.json"))
 	assertNestedString(t, settings, "kanagawa", "theme")
-	assertNestedStringsUnordered(t, settings, []string{"npm:other@1.0.0", "npm:pi-mcp-adapter"}, "packages")
+	assertNestedStringsUnordered(t, settings, []string{"npm:other@1.0.0", "pi-mcp-adapter"}, "packages")
 
 	npmPackage := readJSONFile(t, filepath.Join(home, ".pi", "npm", "package.json"))
 	assertNestedString(t, npmPackage, "pi-user", "name")
@@ -273,7 +273,7 @@ func TestInjectPiProvisioningCanonicalizesExistingEntriesAndIsIdempotent(t *test
 	}
 
 	settings := readJSONFile(t, filepath.Join(home, ".pi", "agent", "settings.json"))
-	assertNestedStrings(t, settings, []string{"npm:pi-mcp-adapter"}, "packages")
+	assertNestedStrings(t, settings, []string{"pi-mcp-adapter"}, "packages")
 	npmPackage := readJSONFile(t, filepath.Join(home, ".pi", "npm", "package.json"))
 	assertNestedString(t, npmPackage, "^2.6.0", "dependencies", "pi-mcp-adapter")
 
@@ -297,7 +297,7 @@ func TestInjectPiProvisioningMigratesLegacyObjectPackages(t *testing.T) {
 
 	settings := readJSONFile(t, filepath.Join(home, ".pi", "agent", "settings.json"))
 	assertNestedString(t, settings, "kanagawa", "theme")
-	assertNestedStringsUnordered(t, settings, []string{"npm:other@1.0.0", "npm:pi-mcp-adapter"}, "packages")
+	assertNestedStringsUnordered(t, settings, []string{"other@1.0.0", "pi-mcp-adapter"}, "packages")
 }
 
 // TestInjectOpenCodeMigratesFromOldFormat verifies that when a user's

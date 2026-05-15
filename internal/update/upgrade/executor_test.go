@@ -154,8 +154,8 @@ func TestExecute_RegisteredNotMaterializedIsExecutable(t *testing.T) {
 	}
 	openCodeHomeDir = func() (string, error) { return home, nil }
 	lookPathCommand = func(file string) (string, error) {
-		if file == "npm" {
-			return "/usr/bin/npm", nil
+		if file == "pnpm" {
+			return "/usr/bin/pnpm", nil
 		}
 		return "", errors.New("not found")
 	}
@@ -175,7 +175,7 @@ func TestExecute_RegisteredNotMaterializedIsExecutable(t *testing.T) {
 	report := Execute(context.Background(), []update.UpdateResult{result}, linuxProfile(), home, false)
 
 	if !execCalled {
-		t.Fatal("registered-pending OpenCode plugins should execute npm dependency upgrade")
+		t.Fatal("registered-pending OpenCode plugins should execute pnpm dependency upgrade")
 	}
 	if len(report.Results) != 1 {
 		t.Fatalf("len(Results) = %d, want 1", len(report.Results))

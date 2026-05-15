@@ -683,7 +683,7 @@ func TestRunSyncDoesNotInstallBinaries(t *testing.T) {
 	// No binary installation commands.
 	for _, cmd := range commandsCalled {
 		if strings.Contains(cmd, "brew install") || strings.Contains(cmd, "go install") ||
-			strings.Contains(cmd, "git clone") || strings.Contains(cmd, "npm install") {
+			strings.Contains(cmd, "git clone") || strings.Contains(cmd, "pnpm install") {
 			t.Errorf("RunSync must NOT install binaries, got command: %s", cmd)
 		}
 	}
@@ -1330,7 +1330,7 @@ func TestRunSyncExternalSingleActiveSkipsDetectAndPreservesOrchestratorPrompt(t 
 	runCommand = func(string, ...string) error { return nil }
 	cmdLookPath = func(name string) (string, error) { return "/usr/local/bin/" + name, nil }
 
-	// Pre-create package directory to avoid npm/bun install attempts in tests.
+	// Pre-create package directory to avoid pnpm install attempts in tests.
 	if err := os.MkdirAll(filepath.Join(home, ".config", "opencode", "node_modules", "unique-names-generator"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(node_modules): %v", err)
 	}

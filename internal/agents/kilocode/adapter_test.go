@@ -201,29 +201,29 @@ func TestInstallCommand(t *testing.T) {
 		want    [][]string
 	}{
 		{
-			name:    "darwin resolves npm install without sudo",
+			name:    "darwin resolves pnpm install without sudo",
 			profile: system.PlatformProfile{OS: "darwin", PackageManager: "brew"},
-			want:    [][]string{{"npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
+			want:    [][]string{{"pnpm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
 		},
 		{
-			name:    "ubuntu resolves npm install with sudo",
+			name:    "ubuntu resolves pnpm install with sudo",
 			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroUbuntu, PackageManager: "apt"},
-			want:    [][]string{{"sudo", "npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
+			want:    [][]string{{"sudo", "pnpm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
 		},
 		{
-			name:    "arch resolves npm install with sudo",
+			name:    "arch resolves pnpm install with sudo",
 			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroArch, PackageManager: "pacman"},
-			want:    [][]string{{"sudo", "npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
+			want:    [][]string{{"sudo", "pnpm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
 		},
 		{
-			name:    "fedora resolves npm install with sudo",
+			name:    "fedora resolves pnpm install with sudo",
 			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroFedora, PackageManager: "dnf"},
-			want:    [][]string{{"sudo", "npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
+			want:    [][]string{{"sudo", "pnpm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
 		},
 		{
-			name:    "linux with writable npm skips sudo",
-			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroFedora, PackageManager: "dnf", NpmWritable: true},
-			want:    [][]string{{"npm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
+			name:    "linux with writable pnpm skips sudo",
+			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroFedora, PackageManager: "dnf", PnpmWritable: true},
+			want:    [][]string{{"pnpm", "install", "-g", "--ignore-scripts", "@kilocode/cli@" + versions.Kilocode}},
 		},
 	}
 

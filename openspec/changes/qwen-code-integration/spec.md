@@ -86,11 +86,11 @@ The adapter MUST report `SupportsAutoInstall() = true`, indicating it can be ins
 
 ### Requirement: Install Command Resolution
 
-The adapter MUST return the correct npm install command based on platform profile:
-- Linux without writable npm: `["sudo", "npm", "install", "-g", "@qwen-code/qwen-code@latest"]`
-- All other platforms: `["npm", "install", "-g", "@qwen-code/qwen-code@latest"]`
+The adapter MUST return the correct pnpm install command based on platform profile:
+- Linux without writable pnpm: `["sudo", "pnpm", "install", "-g", "@qwen-code/qwen-code@latest"]`
+- All other platforms: `["pnpm", "install", "-g", "@qwen-code/qwen-code@latest"]`
 
-#### Scenario: Darwin uses npm without sudo
+#### Scenario: Darwin uses pnpm without sudo
 
 - GIVEN OS is `darwin`
 - WHEN `InstallCommand()` is called

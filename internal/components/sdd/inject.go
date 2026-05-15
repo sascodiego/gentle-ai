@@ -1058,8 +1058,8 @@ func installOpenCodePlugins(homeDir string, adapter agents.Adapter) (InjectionRe
 			return InjectionResult{}, fmt.Errorf(
 				"post-install check: %q was not found after install in %q — "+
 					"the background-agents plugin will fail to load.\n"+
-					"Fix: run `cd %s && bun add %s` (or npm install %s) manually",
-				depPkg, nmPath, opencodeDir, depPkg, depPkg,
+					"Fix: run `cd %s && pnpm add %s` manually",
+				depPkg, nmPath, opencodeDir, depPkg,
 			)
 		}
 	}
@@ -1067,36 +1067,22 @@ func installOpenCodePlugins(homeDir string, adapter agents.Adapter) (InjectionRe
 	return InjectionResult{Changed: changed, Files: files}, nil
 }
 
-// runPkgInstall installs a node package in the given directory using bun (if
-// available) or npm. Returns (true, nil) on success, (false, nil) if no
-// package manager is found (soft skip), or (true, error) with a descriptive,
-// actionable message if a package manager was found but the install failed.
+// runPkgInstall installs a node package in the given directory using pnpm.
+// Returns (true, nil) on success, (false, nil) if no package manager is found
+// (soft skip), or (true, error) with a descriptive, actionable message if the
+// install failed.
 func runPkgInstall(dir, pkg string) (ran bool, err error) {
-	// Prefer bun — OpenCode ships with bun.lock and recommends bun.
-	if bunPath, lookErr := npmLookPath("bun"); lookErr == nil {
-		out, runErr := npmRun(dir, bunPath, "add", pkg)
+	if pnpmPath, lookErr := npmLookPath("pnpm"); lookErr == nil {
+		out, runErr := npmRun(dir, pnpmPath, "add", pkg)
 		if runErr != nil {
 			return true, fmt.Errorf(
-				"bun add %s failed in %s: %w\nOutput: %s\nFix: run `cd %s && bun add %s` manually",
+				"pnpm add %s failed in %s: %w\nOutput: %s\nFix: run `cd %s && pnpm add %s` manually",
 				pkg, dir, runErr, strings.TrimSpace(string(out)), dir, pkg,
 			)
 		}
 		return true, nil
 	}
 
-	// Fall back to npm.
-	if npmPath, lookErr := npmLookPath("npm"); lookErr == nil {
-		out, runErr := npmRun(dir, npmPath, "install", "--save", pkg)
-		if runErr != nil {
-			return true, fmt.Errorf(
-				"npm install %s failed in %s: %w\nOutput: %s\nFix: run `cd %s && npm install %s` manually",
-				pkg, dir, runErr, strings.TrimSpace(string(out)), dir, pkg,
-			)
-		}
-		return true, nil
-	}
-
-	// No package manager available — soft skip.
 	return false, nil
 }
 

@@ -46,7 +46,7 @@ Add Qwen Code (by Alibaba/Alibaba Cloud) as a fully supported AI coding agent in
 
 2. **Key differentiator from Gemini**: Qwen Code supports custom slash commands via `~/.qwen/commands/*.md`. The adapter implements `SupportsSlashCommands() = true` and `CommandsDir()` — a capability Gemini CLI does not have. This opens future enhancement opportunities for SDD slash commands.
 
-3. **Install via npm**: `npm install -g @qwen-code/qwen-code@latest` — same pattern as Claude Code, Gemini CLI, and Codex. Linux sudo handling follows existing `NpmWritable` convention.
+3. **Install via pnpm**: `pnpm install -g @qwen-code/qwen-code@latest` — same pattern as Claude Code, Gemini CLI, and Codex. Linux sudo handling follows existing `PnpmWritable` convention.
 
 4. **Permissions overlay**: `"defaultMode": "auto_edit"` — auto-approve file edits, manual approval for shell commands. Matches Qwen Code's native permission model.
 

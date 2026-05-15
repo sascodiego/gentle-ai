@@ -101,7 +101,7 @@ func TestRunInstallEngramForPiAndOpenCodeProvisionsBothMCPTargets(t *testing.T) 
 	runCommand = func(name string, args ...string) error {
 		commands = append(commands, strings.Join(append([]string{name}, args...), " "))
 		// Simulate pi-engram init writing mcp.json with the new schema.
-		if name == "npm" && len(args) >= 7 && args[5] == "pi-engram" && args[6] == "init" {
+		if name == "pnpm" && len(args) >= 6 && args[4] == "pi-engram" && args[5] == "init" {
 			mcpPath := filepath.Join(home, ".pi", "agent", "mcp.json")
 			if err := os.MkdirAll(filepath.Dir(mcpPath), 0o755); err != nil {
 				return err
@@ -125,11 +125,11 @@ func TestRunInstallEngramForPiAndOpenCodeProvisionsBothMCPTargets(t *testing.T) 
 		t.Fatalf("verification ready = false, report = %#v", result.Verify)
 	}
 
-	assertFileContains(t, filepath.Join(home, ".pi", "agent", "settings.json"), "npm:pi-mcp-adapter")
+	assertFileContains(t, filepath.Join(home, ".pi", "agent", "settings.json"), "pi-mcp-adapter")
 	assertFileContains(t, filepath.Join(home, ".pi", "npm", "package.json"), "pi-mcp-adapter")
 	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode.json"), "engram")
 
-	for _, want := range []string{"pi install npm:pi-mcp-adapter", fmt.Sprintf("npm exec --yes --package gentle-engram@%s -- pi-engram init", versions.GentleEngram)} {
+	for _, want := range []string{"pi install pi-mcp-adapter", fmt.Sprintf("pnpm dlx --package gentle-engram@%s -- pi-engram init", versions.GentleEngram)} {
 		if !stringSliceContains(commands, want) {
 			t.Fatalf("commands missing %q; got %v", want, commands)
 		}
@@ -172,17 +172,17 @@ func TestPiAgentInstallRunsPackageCommandsWhenPiAlreadyInstalled(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"pi install npm:gentle-pi",
-		"pi install npm:gentle-engram",
-		"pi install npm:pi-mcp-adapter",
-		fmt.Sprintf("npm exec --yes --package gentle-engram@%s -- pi-engram init", versions.GentleEngram),
-		"pi install npm:pi-subagents",
-		"pi install npm:pi-intercom",
-		"pi install npm:@juicesharp/rpiv-ask-user-question",
-		"pi install npm:pi-web-access",
-		"pi install npm:pi-lens",
-		"pi install npm:@juicesharp/rpiv-todo",
-		"pi install npm:pi-btw",
+		"pi install gentle-pi",
+		"pi install gentle-engram",
+		"pi install pi-mcp-adapter",
+		fmt.Sprintf("pnpm dlx --package gentle-engram@%s -- pi-engram init", versions.GentleEngram),
+		"pi install pi-subagents",
+		"pi install pi-intercom",
+		"pi install @juicesharp/rpiv-ask-user-question",
+		"pi install pi-web-access",
+		"pi install pi-lens",
+		"pi install @juicesharp/rpiv-todo",
+		"pi install pi-btw",
 	} {
 		if !stringSliceContains(commands, want) {
 			t.Fatalf("commands missing %q; got %v", want, commands)
@@ -581,17 +581,12 @@ func TestRunInstallLinuxAgentInstallResolvesGoInstallCommand(t *testing.T) {
 		t.Fatalf("RunInstall() error = %v", err)
 	}
 
-	// OpenCode on Ubuntu should resolve via npm install (official method from opencode.ai).
+	// OpenCode agent installation is now skipped — no pnpm install should run.
 	commands := recorder.get()
-	foundNpmInstall := false
 	for _, cmd := range commands {
-		if strings.Contains(cmd, "sudo npm install -g --ignore-scripts opencode-ai@"+versions.OpenCode) {
-			foundNpmInstall = true
-			break
+		if strings.Contains(cmd, "pnpm install") && strings.Contains(cmd, "opencode-ai") {
+			t.Fatalf("OpenCode agent install should be skipped, got command: %s", cmd)
 		}
-	}
-	if !foundNpmInstall {
-		t.Fatalf("expected npm install command for opencode agent, got commands: %v", commands)
 	}
 }
 

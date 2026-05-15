@@ -2741,7 +2741,7 @@ func TestInjectOpenCodeSingleWritesPlugin(t *testing.T) {
 }
 
 func TestInjectOpenCodePluginNoPkgManagerAvailable(t *testing.T) {
-	// Mock: no package manager (neither bun nor npm) is available.
+	// Mock: no package manager is available.
 	orig := npmLookPath
 	npmLookPath = func(string) (string, error) {
 		return "", fmt.Errorf("not found")
@@ -2765,21 +2765,18 @@ func TestInjectOpenCodePluginNoPkgManagerAvailable(t *testing.T) {
 	_ = result
 }
 
-func TestInjectOpenCodePluginNpmFailureReturnsActionableError(t *testing.T) {
-	// Mock: package manager IS available but the install fails.
+func TestInjectOpenCodePluginPnpmFailureReturnsActionableError(t *testing.T) {
+	// Mock: pnpm IS available but the install fails.
 	orig := npmLookPath
 	origRun := npmRun
 	npmLookPath = func(bin string) (string, error) {
-		if bin == "bun" {
-			return "", fmt.Errorf("not found")
-		}
-		if bin == "npm" {
-			return "/usr/bin/npm", nil
+		if bin == "pnpm" {
+			return "/usr/bin/pnpm", nil
 		}
 		return "", fmt.Errorf("not found")
 	}
 	npmRun = func(dir string, args ...string) ([]byte, error) {
-		return []byte("ERR! some npm error"), fmt.Errorf("exit status 1")
+		return []byte("ERR! some pnpm error"), fmt.Errorf("exit status 1")
 	}
 	defer func() {
 		npmLookPath = orig
@@ -2790,10 +2787,10 @@ func TestInjectOpenCodePluginNpmFailureReturnsActionableError(t *testing.T) {
 
 	_, err := Inject(home, opencodeAdapter(), "multi")
 	if err == nil {
-		t.Fatal("Inject(multi) should fail when npm install fails")
+		t.Fatal("Inject(multi) should fail when pnpm add fails")
 	}
-	if !strings.Contains(err.Error(), "npm install") {
-		t.Fatalf("error should mention 'npm install', got: %v", err)
+	if !strings.Contains(err.Error(), "pnpm add") {
+		t.Fatalf("error should mention 'pnpm add', got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "unique-names-generator") {
 		t.Fatalf("error should mention the package name, got: %v", err)
@@ -2803,16 +2800,15 @@ func TestInjectOpenCodePluginNpmFailureReturnsActionableError(t *testing.T) {
 	}
 }
 
-func TestInjectOpenCodePluginBunPreferredOverNpm(t *testing.T) {
-	// Mock: both bun and npm available; only bun should be called.
+func TestInjectOpenCodePluginPnpmUsedForInstall(t *testing.T) {
+	// Mock: pnpm is available and should be used.
 	orig := npmLookPath
 	origRun := npmRun
 
 	var calledWith string
 	npmLookPath = func(bin string) (string, error) {
-		// Both available — bun should win.
-		if bin == "bun" || bin == "npm" {
-			return "/usr/local/bin/" + bin, nil
+		if bin == "pnpm" {
+			return "/usr/local/bin/pnpm", nil
 		}
 		return "", fmt.Errorf("not found")
 	}
@@ -2838,8 +2834,8 @@ func TestInjectOpenCodePluginBunPreferredOverNpm(t *testing.T) {
 		t.Fatalf("Inject(multi) error = %v", err)
 	}
 
-	if !strings.Contains(calledWith, "bun") {
-		t.Fatalf("expected bun to be preferred over npm, but called: %q", calledWith)
+	if !strings.Contains(calledWith, "pnpm") {
+		t.Fatalf("expected pnpm to be used, but called: %q", calledWith)
 	}
 }
 

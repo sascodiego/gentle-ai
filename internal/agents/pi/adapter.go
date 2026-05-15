@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	piMCPAdapterPackage      = "npm:pi-mcp-adapter"
-	piMCPAdapterPackageSpec  = "npm:pi-mcp-adapter"
+	piMCPAdapterPackage      = "pi-mcp-adapter"
+	piMCPAdapterPackageSpec  = "pi-mcp-adapter"
 	piMCPAdapterDependency   = "pi-mcp-adapter"
 	piMCPAdapterVersion      = "2.6.0"
 	piMCPAdapterVersionRange = "^2.6.0"
@@ -71,17 +71,17 @@ func (a *Adapter) SupportsAutoInstall() bool { return true }
 
 func (a *Adapter) InstallCommand(system.PlatformProfile) ([][]string, error) {
 	return [][]string{
-		{"pi", "install", "npm:gentle-pi"},
-		{"pi", "install", "npm:gentle-engram"},
-		{"pi", "install", "npm:pi-mcp-adapter"},
-		{"npm", "exec", "--yes", "--package", "gentle-engram@" + versions.GentleEngram, "--", "pi-engram", "init"},
-		{"pi", "install", "npm:pi-subagents"},
-		{"pi", "install", "npm:pi-intercom"},
-		{"pi", "install", "npm:@juicesharp/rpiv-ask-user-question"},
-		{"pi", "install", "npm:pi-web-access"},
-		{"pi", "install", "npm:pi-lens"},
-		{"pi", "install", "npm:@juicesharp/rpiv-todo"},
-		{"pi", "install", "npm:pi-btw"},
+		{"pi", "install", "gentle-pi"},
+		{"pi", "install", "gentle-engram"},
+		{"pi", "install", "pi-mcp-adapter"},
+		{"pnpm", "dlx", "--package", "gentle-engram@" + versions.GentleEngram, "--", "pi-engram", "init"},
+		{"pi", "install", "pi-subagents"},
+		{"pi", "install", "pi-intercom"},
+		{"pi", "install", "@juicesharp/rpiv-ask-user-question"},
+		{"pi", "install", "pi-web-access"},
+		{"pi", "install", "pi-lens"},
+		{"pi", "install", "@juicesharp/rpiv-todo"},
+		{"pi", "install", "pi-btw"},
 	}, nil
 }
 
@@ -231,12 +231,13 @@ func piPackagesAsSlice(existing any) []any {
 	case map[string]any:
 		packages := make([]any, 0, len(value))
 		for source, version := range value {
+			cleanSource := strings.TrimPrefix(source, "npm:")
 			versionString, _ := version.(string)
-			if versionString != "" && strings.HasPrefix(source, "npm:") && !strings.Contains(strings.TrimPrefix(source, "npm:"), "@") {
-				packages = append(packages, source+"@"+versionString)
+			if versionString != "" && !strings.Contains(cleanSource, "@") {
+				packages = append(packages, cleanSource+"@"+versionString)
 				continue
 			}
-			packages = append(packages, source)
+			packages = append(packages, cleanSource)
 		}
 		return packages
 	default:
@@ -253,6 +254,7 @@ func piPackageIdentity(pkg any) string {
 		}
 		source, _ = object["source"].(string)
 	}
+	source = strings.TrimPrefix(source, "npm:")
 	if strings.HasPrefix(source, piMCPAdapterPackage+"@") || source == piMCPAdapterPackage {
 		return piMCPAdapterPackage
 	}

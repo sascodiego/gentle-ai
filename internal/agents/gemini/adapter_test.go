@@ -97,24 +97,24 @@ func TestInstallCommand(t *testing.T) {
 		want    [][]string
 	}{
 		{
-			name:    "darwin uses npm without sudo",
+			name:    "darwin uses pnpm without sudo",
 			profile: system.PlatformProfile{OS: "darwin", PackageManager: "brew"},
-			want:    [][]string{{"npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@" + versions.GeminiCLI}},
+			want:    [][]string{{"pnpm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@" + versions.GeminiCLI}},
 		},
 		{
-			name:    "linux system npm uses sudo",
+			name:    "linux system pnpm uses sudo",
 			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroUbuntu, PackageManager: "apt"},
-			want:    [][]string{{"sudo", "npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@" + versions.GeminiCLI}},
+			want:    [][]string{{"sudo", "pnpm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@" + versions.GeminiCLI}},
 		},
 		{
 			name:    "linux nvm skips sudo",
-			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroUbuntu, PackageManager: "apt", NpmWritable: true},
-			want:    [][]string{{"npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@" + versions.GeminiCLI}},
+			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroUbuntu, PackageManager: "apt", PnpmWritable: true},
+			want:    [][]string{{"pnpm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@" + versions.GeminiCLI}},
 		},
 		{
-			name:    "windows uses npm without sudo",
-			profile: system.PlatformProfile{OS: "windows", PackageManager: "winget", NpmWritable: true},
-			want:    [][]string{{"npm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@" + versions.GeminiCLI}},
+			name:    "windows uses pnpm without sudo",
+			profile: system.PlatformProfile{OS: "windows", PackageManager: "winget", PnpmWritable: true},
+			want:    [][]string{{"pnpm", "install", "-g", "--ignore-scripts", "@google/gemini-cli@" + versions.GeminiCLI}},
 		},
 	}
 

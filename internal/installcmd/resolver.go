@@ -53,29 +53,29 @@ func (profileResolver) ResolveAgentInstall(profile system.PlatformProfile, agent
 	}
 }
 
-// resolveClaudeCodeInstall returns the npm install command sequence for Claude Code.
-// On Linux with system npm, sudo is required. With nvm/fnm/volta, it is not.
+// resolveClaudeCodeInstall returns the pnpm install command sequence for Claude Code.
+// On Linux with system pnpm, sudo is required. With nvm/fnm/volta, it is not.
 // On Windows and macOS, sudo is never needed.
 //
 // --ignore-scripts blocks postinstall hooks, the primary supply-chain attack vector
 // for npm packages. The version is pinned to avoid pulling a tampered "latest" tag.
 func resolveClaudeCodeInstall(profile system.PlatformProfile) CommandSequence {
 	pkg := "@anthropic-ai/claude-code@" + versions.ClaudeCode
-	if profile.OS == "linux" && !profile.NpmWritable {
-		return CommandSequence{{"sudo", "npm", "install", "-g", "--ignore-scripts", pkg}}
+	if profile.OS == "linux" && !profile.PnpmWritable {
+		return CommandSequence{{"sudo", "pnpm", "install", "-g", "--ignore-scripts", pkg}}
 	}
-	return CommandSequence{{"npm", "install", "-g", "--ignore-scripts", pkg}}
+	return CommandSequence{{"pnpm", "install", "-g", "--ignore-scripts", pkg}}
 }
 
-// resolveKilocodeInstall returns the npm install command sequence for Kilocode.
-// On Linux with system npm, sudo is required. With nvm/fnm/volta, it is not.
+// resolveKilocodeInstall returns the pnpm install command sequence for Kilocode.
+// On Linux with system pnpm, sudo is required. With nvm/fnm/volta, it is not.
 // On Windows and macOS, sudo is never needed.
 func resolveKilocodeInstall(profile system.PlatformProfile) CommandSequence {
 	pkg := "@kilocode/cli@" + versions.Kilocode
-	if profile.OS == "linux" && !profile.NpmWritable {
-		return CommandSequence{{"sudo", "npm", "install", "-g", "--ignore-scripts", pkg}}
+	if profile.OS == "linux" && !profile.PnpmWritable {
+		return CommandSequence{{"sudo", "pnpm", "install", "-g", "--ignore-scripts", pkg}}
 	}
-	return CommandSequence{{"npm", "install", "-g", "--ignore-scripts", pkg}}
+	return CommandSequence{{"pnpm", "install", "-g", "--ignore-scripts", pkg}}
 }
 
 // resolveKimiInstall returns the official Kimi install command sequence.
@@ -186,7 +186,7 @@ func (profileResolver) ResolveDependencyInstall(profile system.PlatformProfile, 
 
 // resolveOpenCodeInstall returns the correct install command sequence for OpenCode per platform.
 // - darwin: brew install anomalyco/tap/opencode (official OpenCode tap)
-// - linux: npm install -g opencode-ai (official npm package)
+// - linux: pnpm install -g opencode-ai (official npm package)
 // See https://opencode.ai/docs for official install methods.
 func resolveOpenCodeInstall(profile system.PlatformProfile) (CommandSequence, error) {
 	switch profile.PackageManager {
@@ -196,13 +196,13 @@ func resolveOpenCodeInstall(profile system.PlatformProfile) (CommandSequence, er
 		}, nil
 	case "apt", "pacman", "dnf":
 		pkg := "opencode-ai@" + versions.OpenCode
-		if profile.NpmWritable {
-			return CommandSequence{{"npm", "install", "-g", "--ignore-scripts", pkg}}, nil
+		if profile.PnpmWritable {
+			return CommandSequence{{"pnpm", "install", "-g", "--ignore-scripts", pkg}}, nil
 		}
-		return CommandSequence{{"sudo", "npm", "install", "-g", "--ignore-scripts", pkg}}, nil
+		return CommandSequence{{"sudo", "pnpm", "install", "-g", "--ignore-scripts", pkg}}, nil
 	case "winget":
-		// On Windows, npm global installs do not require sudo.
-		return CommandSequence{{"npm", "install", "-g", "--ignore-scripts", "opencode-ai@" + versions.OpenCode}}, nil
+		// On Windows, pnpm global installs do not require sudo.
+		return CommandSequence{{"pnpm", "install", "-g", "--ignore-scripts", "opencode-ai@" + versions.OpenCode}}, nil
 	default:
 		return nil, fmt.Errorf(
 			"unsupported platform for opencode: os=%q distro=%q pm=%q",

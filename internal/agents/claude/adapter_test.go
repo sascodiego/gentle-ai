@@ -117,19 +117,19 @@ func TestInstallCommand(t *testing.T) {
 		want    [][]string
 	}{
 		{
-			name:    "darwin profile uses npm without sudo",
+			name:    "darwin profile uses pnpm without sudo",
 			profile: system.PlatformProfile{OS: "darwin", PackageManager: "brew"},
-			want:    [][]string{{"npm", "install", "-g", "--ignore-scripts", "@anthropic-ai/claude-code@" + versions.ClaudeCode}},
+			want:    [][]string{{"pnpm", "install", "-g", "--ignore-scripts", "@anthropic-ai/claude-code@" + versions.ClaudeCode}},
 		},
 		{
-			name:    "ubuntu profile uses sudo npm",
+			name:    "ubuntu profile uses sudo pnpm",
 			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroUbuntu, PackageManager: "apt"},
-			want:    [][]string{{"sudo", "npm", "install", "-g", "--ignore-scripts", "@anthropic-ai/claude-code@" + versions.ClaudeCode}},
+			want:    [][]string{{"sudo", "pnpm", "install", "-g", "--ignore-scripts", "@anthropic-ai/claude-code@" + versions.ClaudeCode}},
 		},
 		{
-			name:    "arch profile uses sudo npm",
+			name:    "arch profile uses sudo pnpm",
 			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroArch, PackageManager: "pacman"},
-			want:    [][]string{{"sudo", "npm", "install", "-g", "--ignore-scripts", "@anthropic-ai/claude-code@" + versions.ClaudeCode}},
+			want:    [][]string{{"sudo", "pnpm", "install", "-g", "--ignore-scripts", "@anthropic-ai/claude-code@" + versions.ClaudeCode}},
 		},
 	}
 

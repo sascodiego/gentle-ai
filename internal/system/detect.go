@@ -20,7 +20,7 @@ type PlatformProfile struct {
 	OS             string
 	LinuxDistro    string
 	PackageManager string
-	NpmWritable    bool // true when npm global prefix is user-writable (nvm/fnm/volta)
+	PnpmWritable   bool // true when pnpm global prefix is user-writable (nvm/fnm/volta)
 	Supported      bool
 }
 
@@ -54,21 +54,21 @@ func Detect(ctx context.Context) (DetectionResult, error) {
 	osReleaseContent, _ := osReleaseContent(runtime.GOOS)
 
 	result := detectFromInputs(runtime.GOOS, runtime.GOARCH, os.Getenv("SHELL"), osReleaseContent, tools, configs)
-	// On Windows, npm global prefix is user-writable by default (no sudo needed).
+	// On Windows, pnpm global prefix is user-writable by default (no sudo needed).
 	if runtime.GOOS == "windows" {
-		result.System.Profile.NpmWritable = true
+		result.System.Profile.PnpmWritable = true
 	} else {
-		result.System.Profile.NpmWritable = detectNpmWritable(homeDir)
+		result.System.Profile.PnpmWritable = detectPnpmWritable(homeDir)
 	}
 	result.Dependencies = DetectDependencies(ctx, result.System.Profile)
 
 	return result, nil
 }
 
-// detectNpmWritable checks if npm's global prefix is under the user's home
+// detectPnpmWritable checks if pnpm's global prefix is under the user's home
 // directory (nvm, fnm, volta, etc.), meaning sudo is not needed for global installs.
-func detectNpmWritable(homeDir string) bool {
-	out, err := exec.Command("npm", "config", "get", "prefix").Output()
+func detectPnpmWritable(homeDir string) bool {
+	out, err := exec.Command("pnpm", "config", "get", "prefix").Output()
 	if err != nil {
 		return false
 	}

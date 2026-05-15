@@ -96,17 +96,17 @@ func hasPiAgentInInstallPlan(plan planner.ResolvedPlan, selection model.Selectio
 
 func piInstallCommands() []string {
 	return []string{
-		"pi install npm:gentle-pi",
-		"pi install npm:gentle-engram",
-		"pi install npm:pi-mcp-adapter",
-		fmt.Sprintf("npm exec --yes --package gentle-engram@%s -- pi-engram init", versions.GentleEngram),
-		"pi install npm:pi-subagents",
-		"pi install npm:pi-intercom",
-		"pi install npm:@juicesharp/rpiv-ask-user-question",
-		"pi install npm:pi-web-access",
-		"pi install npm:pi-lens",
-		"pi install npm:@juicesharp/rpiv-todo",
-		"pi install npm:pi-btw",
+		"pi install gentle-pi",
+		"pi install gentle-engram",
+		"pi install pi-mcp-adapter",
+		fmt.Sprintf("pnpm dlx --package gentle-engram@%s -- pi-engram init", versions.GentleEngram),
+		"pi install pi-subagents",
+		"pi install pi-intercom",
+		"pi install @juicesharp/rpiv-ask-user-question",
+		"pi install pi-web-access",
+		"pi install pi-lens",
+		"pi install @juicesharp/rpiv-todo",
+		"pi install pi-btw",
 	}
 }
 

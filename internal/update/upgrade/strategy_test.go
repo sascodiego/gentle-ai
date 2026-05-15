@@ -350,8 +350,8 @@ func TestRunStrategyOpenCodePluginUpgradesMaterializedPackage(t *testing.T) {
 
 	openCodeHomeDir = func() (string, error) { return home, nil }
 	lookPathCommand = func(file string) (string, error) {
-		if file == "bun" {
-			return "/usr/bin/bun", nil
+		if file == "pnpm" {
+			return "/usr/bin/pnpm", nil
 		}
 		return "", errors.New("not found")
 	}
@@ -382,8 +382,8 @@ func TestRunStrategyOpenCodePluginUpgradesMaterializedPackage(t *testing.T) {
 		t.Fatalf("runStrategy OpenCode plugin: unexpected error: %v", err)
 	}
 
-	if gotName != "bun" {
-		t.Fatalf("exec name = %q, want bun", gotName)
+	if gotName != "pnpm" {
+		t.Fatalf("exec name = %q, want pnpm", gotName)
 	}
 	wantArgs := []string{"add", pkg + "@latest", "@opencode-ai/plugin@latest"}
 	if strings.Join(gotArgs, " ") != strings.Join(wantArgs, " ") {
@@ -436,8 +436,8 @@ func TestRunStrategyOpenCodePluginRegisteredPendingRunsPackageManager(t *testing
 
 	openCodeHomeDir = func() (string, error) { return home, nil }
 	lookPathCommand = func(file string) (string, error) {
-		if file == "npm" {
-			return "/usr/bin/npm", nil
+		if file == "pnpm" {
+			return "/usr/bin/pnpm", nil
 		}
 		return "", errors.New("not found")
 	}
@@ -458,12 +458,12 @@ func TestRunStrategyOpenCodePluginRegisteredPendingRunsPackageManager(t *testing
 		Status: update.RegisteredNotMaterialized,
 	}, system.PlatformProfile{})
 	if err != nil {
-		t.Fatalf("registered OpenCode plugin should be npm-managed during upgrade, got: %v", err)
+		t.Fatalf("registered OpenCode plugin should be pnpm-managed during upgrade, got: %v", err)
 	}
-	if gotName != "npm" {
-		t.Fatalf("exec name = %q, want npm", gotName)
+	if gotName != "pnpm" {
+		t.Fatalf("exec name = %q, want pnpm", gotName)
 	}
-	wantArgs := []string{"install", "--save", "--no-audit", "--no-fund", pkg + "@latest", "@opencode-ai/plugin@latest"}
+	wantArgs := []string{"add", pkg + "@latest", "@opencode-ai/plugin@latest"}
 	if strings.Join(gotArgs, " ") != strings.Join(wantArgs, " ") {
 		t.Fatalf("exec args = %v, want %v", gotArgs, wantArgs)
 	}
@@ -502,9 +502,9 @@ func TestRunStrategyOpenCodePluginFallsBackWithoutPackageManager(t *testing.T) {
 		},
 	}, system.PlatformProfile{})
 	if err == nil {
-		t.Fatal("expected manual fallback when bun/npm are unavailable, got nil")
+		t.Fatal("expected manual fallback when pnpm is unavailable, got nil")
 	}
-	if !containsAny(err.Error(), "bun", "npm", "package manager") {
+	if !containsAny(err.Error(), "pnpm", "package manager") {
 		t.Fatalf("fallback should mention missing package manager, got: %v", err)
 	}
 	if execCalled {
@@ -517,12 +517,12 @@ func TestSelectOpenCodePackageManagerPrefersPackageMetadata(t *testing.T) {
 	t.Cleanup(func() { lookPathCommand = origLookPath })
 
 	opencodeDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(opencodeDir, "package.json"), []byte(`{"packageManager":"npm@10.8.0"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(opencodeDir, "package.json"), []byte(`{"packageManager":"pnpm@9.15.0"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	lookPathCommand = func(file string) (string, error) {
 		switch file {
-		case "bun", "npm":
+		case "pnpm":
 			return filepath.Join("/usr/bin", file), nil
 		default:
 			return "", errors.New("not found")
@@ -533,8 +533,8 @@ func TestSelectOpenCodePackageManagerPrefersPackageMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("selectOpenCodePackageManager: unexpected error: %v", err)
 	}
-	if pm != "npm" {
-		t.Fatalf("package manager = %q, want npm from package.json metadata", pm)
+	if pm != "pnpm" {
+		t.Fatalf("package manager = %q, want pnpm from package.json metadata", pm)
 	}
 }
 

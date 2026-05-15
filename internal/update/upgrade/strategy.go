@@ -109,7 +109,7 @@ func opencodePluginUpgrade(ctx context.Context, r update.UpdateResult) error {
 
 	pm, err := selectOpenCodePackageManager(opencodeDir)
 	if err != nil {
-		return &ManualFallbackError{Hint: fmt.Sprintf("OpenCode plugin %s can be upgraded from %s, but no supported package manager is available in PATH. Install bun or npm, then run update tools again.", pkg, opencodeDir)}
+		return &ManualFallbackError{Hint: fmt.Sprintf("OpenCode plugin %s can be upgraded from %s, but pnpm is not available in PATH. Install pnpm, then run update tools again.", pkg, opencodeDir)}
 	}
 
 	select {
@@ -121,10 +121,8 @@ func opencodePluginUpgrade(ctx context.Context, r update.UpdateResult) error {
 	targets := []string{pkg + "@latest", "@opencode-ai/plugin@latest"}
 	var cmd *exec.Cmd
 	switch pm {
-	case "bun":
-		cmd = execCommand("bun", append([]string{"add"}, targets...)...)
-	case "npm":
-		cmd = execCommand("npm", append([]string{"install", "--save", "--no-audit", "--no-fund"}, targets...)...)
+	case "pnpm":
+		cmd = execCommand("pnpm", append([]string{"add"}, targets...)...)
 	default:
 		return &ManualFallbackError{Hint: fmt.Sprintf("unsupported OpenCode package manager %q for %s", pm, pkg)}
 	}
@@ -200,14 +198,12 @@ func clearOpenCodePluginPackageCache(homeDir, pkg string) error {
 }
 
 func selectOpenCodePackageManager(opencodeDir string) (string, error) {
-	candidates := make([]string, 0, 2)
+	candidates := make([]string, 0, 1)
 	if pm := openCodePackageManagerFromMetadata(opencodeDir); pm != "" {
 		candidates = append(candidates, pm)
 	}
-	for _, pm := range []string{"bun", "npm"} {
-		if !stringInSlice(candidates, pm) {
-			candidates = append(candidates, pm)
-		}
+	if !stringInSlice(candidates, "pnpm") {
+		candidates = append(candidates, "pnpm")
 	}
 
 	for _, pm := range candidates {
@@ -215,7 +211,7 @@ func selectOpenCodePackageManager(opencodeDir string) (string, error) {
 			return pm, nil
 		}
 	}
-	return "", fmt.Errorf("bun/npm not found")
+	return "", fmt.Errorf("pnpm not found")
 }
 
 func openCodePackageManagerFromMetadata(opencodeDir string) string {
@@ -227,22 +223,15 @@ func openCodePackageManagerFromMetadata(opencodeDir string) string {
 		if json.Unmarshal(data, &manifest) == nil {
 			pm := strings.ToLower(strings.TrimSpace(manifest.PackageManager))
 			switch {
-			case strings.HasPrefix(pm, "bun@") || pm == "bun":
-				return "bun"
-			case strings.HasPrefix(pm, "npm@") || pm == "npm":
-				return "npm"
+			case strings.HasPrefix(pm, "pnpm@") || pm == "pnpm":
+				return "pnpm"
 			}
 		}
 	}
 
-	for _, lockfile := range []string{"bun.lock", "bun.lockb"} {
+	for _, lockfile := range []string{"pnpm-lock.yaml"} {
 		if _, err := os.Stat(filepath.Join(opencodeDir, lockfile)); err == nil {
-			return "bun"
-		}
-	}
-	for _, lockfile := range []string{"package-lock.json", "npm-shrinkwrap.json"} {
-		if _, err := os.Stat(filepath.Join(opencodeDir, lockfile)); err == nil {
-			return "npm"
+			return "pnpm"
 		}
 	}
 	return ""
