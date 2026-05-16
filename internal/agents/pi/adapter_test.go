@@ -139,14 +139,8 @@ func TestAdapterDetectMissingPiBinary(t *testing.T) {
 	}
 }
 
-func TestAdapterInstallCommandSequenceIsExact(t *testing.T) {
-	a := NewAdapter()
-	commands, err := a.InstallCommand(system.PlatformProfile{})
-	if err != nil {
-		t.Fatalf("InstallCommand() error = %v", err)
-	}
-
-	want := [][]string{
+func TestInstallCommand(t *testing.T) {
+	baseCommands := [][]string{
 		{"pi", "install", "gentle-pi"},
 		{"pi", "install", "gentle-engram"},
 		{"pi", "install", "pi-mcp-adapter"},
@@ -159,7 +153,49 @@ func TestAdapterInstallCommandSequenceIsExact(t *testing.T) {
 		{"pi", "install", "@juicesharp/rpiv-todo"},
 		{"pi", "install", "pi-btw"},
 	}
-	if !reflect.DeepEqual(commands, want) {
-		t.Fatalf("InstallCommand() = %#v, want %#v", commands, want)
+
+	withSudo := make([][]string, len(baseCommands))
+	for i, cmd := range baseCommands {
+		withSudo[i] = append([]string{"sudo"}, cmd...)
+	}
+
+	tests := []struct {
+		name    string
+		profile system.PlatformProfile
+		want    [][]string
+	}{
+		{
+			name:    "linux system pnpm prepends sudo to all commands",
+			profile: system.PlatformProfile{OS: "linux", PnpmWritable: false},
+			want:    withSudo,
+		},
+		{
+			name:    "linux user pnpm returns commands without sudo",
+			profile: system.PlatformProfile{OS: "linux", PnpmWritable: true},
+			want:    baseCommands,
+		},
+		{
+			name:    "darwin returns commands without sudo",
+			profile: system.PlatformProfile{OS: "darwin"},
+			want:    baseCommands,
+		},
+		{
+			name:    "zero value profile returns commands without sudo",
+			profile: system.PlatformProfile{},
+			want:    baseCommands,
+		},
+	}
+
+	a := NewAdapter()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			commands, err := a.InstallCommand(tt.profile)
+			if err != nil {
+				t.Fatalf("InstallCommand() error = %v", err)
+			}
+			if !reflect.DeepEqual(commands, tt.want) {
+				t.Fatalf("InstallCommand(%+v)\ngot  = %v\nwant = %v", tt.profile, commands, tt.want)
+			}
+		})
 	}
 }
