@@ -17,7 +17,11 @@
             "sdd-apply": "allow",
             "sdd-verify": "allow",
             "sdd-archive": "allow",
-            "sdd-onboard": "allow"
+            "sdd-onboard": "allow",
+            "speckit-specify": "allow",
+            "speckit-plan": "allow",
+            "speckit-tasks": "allow",
+            "speckit-implement": "allow"
           }
         }
       },
@@ -144,6 +148,54 @@
       "hidden": true,
       "description": "Guide user through a complete SDD cycle using their real codebase",
       "prompt": "__PROMPT_FILE_sdd-onboard__",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "speckit-specify": {
+      "mode": "subagent",
+      "hidden": true,
+      "description": "Create or update the feature specification",
+      "prompt": "__PROMPT_FILE_speckit-specify__",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "speckit-plan": {
+      "mode": "subagent",
+      "hidden": true,
+      "description": "Execute the implementation planning workflow",
+      "prompt": "__PROMPT_FILE_speckit-plan__",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "speckit-tasks": {
+      "mode": "subagent",
+      "hidden": true,
+      "description": "Generate dependency-ordered tasks from design artifacts",
+      "prompt": "__PROMPT_FILE_speckit-tasks__",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "speckit-implement": {
+      "mode": "subagent",
+      "hidden": true,
+      "description": "Execute the implementation plan by processing tasks",
+      "prompt": "__PROMPT_FILE_speckit-implement__",
       "tools": {
         "read": true,
         "write": true,
