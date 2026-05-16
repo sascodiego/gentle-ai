@@ -70,22 +70,46 @@ func (a *Adapter) Detect(_ context.Context, homeDir string) (bool, string, strin
 func (a *Adapter) SupportsAutoInstall() bool { return true }
 
 // InstallCommand returns the pi install command sequence.
-// Unlike other adapters, pi does NOT need sudo: pi install manages packages
-// under ~/.pi/npm/ (user-owned), so it works without elevated privileges
-// regardless of the global npm/pnpm prefix location.
-func (a *Adapter) InstallCommand(system.PlatformProfile) ([][]string, error) {
+// When the npm global prefix is system-level (profile.OS == "linux" &&
+// !profile.PnpmWritable), commands are prefixed with sudo using the fully
+// resolved pi binary path — sudo's secure_path may not include the pi binary.
+// All package names use the npm: prefix so pi treats them as npm packages
+// rather than local filesystem paths.
+func (a *Adapter) InstallCommand(profile system.PlatformProfile) ([][]string, error) {
+	useSudo := profile.OS == "linux" && !profile.PnpmWritable
+
+	piCmd := func(args ...string) []string {
+		return append([]string{"pi"}, args...)
+	}
+	pnpmCmd := func(args ...string) []string {
+		return append([]string{"pnpm"}, args...)
+	}
+
+	if useSudo {
+		binPath, err := a.lookPath("pi")
+		if err != nil {
+			return nil, fmt.Errorf("resolve pi binary path for sudo: %w", err)
+		}
+		piCmd = func(args ...string) []string {
+			return append([]string{"sudo", binPath}, args...)
+		}
+		pnpmCmd = func(args ...string) []string {
+			return append([]string{"sudo", "pnpm"}, args...)
+		}
+	}
+
 	return [][]string{
-		{"pi", "install", "gentle-pi"},
-		{"pi", "install", "gentle-engram"},
-		{"pi", "install", "pi-mcp-adapter"},
-		{"pnpm", "dlx", "--package", "gentle-engram@" + versions.GentleEngram, "--", "pi-engram", "init"},
-		{"pi", "install", "pi-subagents"},
-		{"pi", "install", "pi-intercom"},
-		{"pi", "install", "@juicesharp/rpiv-ask-user-question"},
-		{"pi", "install", "pi-web-access"},
-		{"pi", "install", "pi-lens"},
-		{"pi", "install", "@juicesharp/rpiv-todo"},
-		{"pi", "install", "pi-btw"},
+		piCmd("install", "npm:gentle-pi"),
+		piCmd("install", "npm:gentle-engram"),
+		piCmd("install", "npm:pi-mcp-adapter"),
+		pnpmCmd("dlx", "--package", "gentle-engram@"+versions.GentleEngram, "--", "pi-engram", "init"),
+		piCmd("install", "npm:pi-subagents"),
+		piCmd("install", "npm:pi-intercom"),
+		piCmd("install", "npm:@juicesharp/rpiv-ask-user-question"),
+		piCmd("install", "npm:pi-web-access"),
+		piCmd("install", "npm:pi-lens"),
+		piCmd("install", "npm:@juicesharp/rpiv-todo"),
+		piCmd("install", "npm:pi-btw"),
 	}, nil
 }
 

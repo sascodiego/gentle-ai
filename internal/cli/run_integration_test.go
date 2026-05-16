@@ -129,7 +129,7 @@ func TestRunInstallEngramForPiAndOpenCodeProvisionsBothMCPTargets(t *testing.T) 
 	assertFileContains(t, filepath.Join(home, ".pi", "npm", "package.json"), "pi-mcp-adapter")
 	assertFileContains(t, filepath.Join(home, ".config", "opencode", "opencode.json"), "engram")
 
-	for _, want := range []string{"pi install pi-mcp-adapter", fmt.Sprintf("pnpm dlx --package gentle-engram@%s -- pi-engram init", versions.GentleEngram)} {
+	for _, want := range []string{"pi install npm:pi-mcp-adapter", fmt.Sprintf("pnpm dlx --package gentle-engram@%s -- pi-engram init", versions.GentleEngram)} {
 		if !stringSliceContains(commands, want) {
 			t.Fatalf("commands missing %q; got %v", want, commands)
 		}
@@ -172,17 +172,17 @@ func TestPiAgentInstallRunsPackageCommandsWhenPiAlreadyInstalled(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"pi install gentle-pi",
-		"pi install gentle-engram",
-		"pi install pi-mcp-adapter",
+		"pi install npm:gentle-pi",
+		"pi install npm:gentle-engram",
+		"pi install npm:pi-mcp-adapter",
 		fmt.Sprintf("pnpm dlx --package gentle-engram@%s -- pi-engram init", versions.GentleEngram),
-		"pi install pi-subagents",
-		"pi install pi-intercom",
-		"pi install @juicesharp/rpiv-ask-user-question",
-		"pi install pi-web-access",
-		"pi install pi-lens",
-		"pi install @juicesharp/rpiv-todo",
-		"pi install pi-btw",
+		"pi install npm:pi-subagents",
+		"pi install npm:pi-intercom",
+		"pi install npm:@juicesharp/rpiv-ask-user-question",
+		"pi install npm:pi-web-access",
+		"pi install npm:pi-lens",
+		"pi install npm:@juicesharp/rpiv-todo",
+		"pi install npm:pi-btw",
 	} {
 		if !stringSliceContains(commands, want) {
 			t.Fatalf("commands missing %q; got %v", want, commands)

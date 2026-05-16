@@ -140,41 +140,110 @@ func TestAdapterDetectMissingPiBinary(t *testing.T) {
 }
 
 func TestInstallCommand(t *testing.T) {
-	wantCommands := [][]string{
-		{"pi", "install", "gentle-pi"},
-		{"pi", "install", "gentle-engram"},
-		{"pi", "install", "pi-mcp-adapter"},
-		{"pnpm", "dlx", "--package", "gentle-engram@" + versions.GentleEngram, "--", "pi-engram", "init"},
-		{"pi", "install", "pi-subagents"},
-		{"pi", "install", "pi-intercom"},
-		{"pi", "install", "@juicesharp/rpiv-ask-user-question"},
-		{"pi", "install", "pi-web-access"},
-		{"pi", "install", "pi-lens"},
-		{"pi", "install", "@juicesharp/rpiv-todo"},
-		{"pi", "install", "pi-btw"},
+	pnpmDlxSuffix := []string{"--package", "gentle-engram@" + versions.GentleEngram, "--", "pi-engram", "init"}
+
+	// Bare pi commands with npm: prefix — used when no sudo needed.
+	barePICommands := func() [][]string {
+		return [][]string{
+			{"pi", "install", "npm:gentle-pi"},
+			{"pi", "install", "npm:gentle-engram"},
+			{"pi", "install", "npm:pi-mcp-adapter"},
+			{"pnpm", "dlx"},
+			{"pi", "install", "npm:pi-subagents"},
+			{"pi", "install", "npm:pi-intercom"},
+			{"pi", "install", "npm:@juicesharp/rpiv-ask-user-question"},
+			{"pi", "install", "npm:pi-web-access"},
+			{"pi", "install", "npm:pi-lens"},
+			{"pi", "install", "npm:@juicesharp/rpiv-todo"},
+			{"pi", "install", "npm:pi-btw"},
+		}
 	}
 
-	// pi install manages packages under ~/.pi/npm/ (user-owned),
-	// so no profile combination should ever prepend sudo.
 	tests := []struct {
-		name    string
-		profile system.PlatformProfile
+		name          string
+		profile       system.PlatformProfile
+		lookPath      func(string) (string, error)
+		wantErr       bool
+		wantCommands  [][]string
 	}{
-		{"linux system pnpm needs no sudo", system.PlatformProfile{OS: "linux", PnpmWritable: false}},
-		{"linux user pnpm needs no sudo", system.PlatformProfile{OS: "linux", PnpmWritable: true}},
-		{"darwin needs no sudo", system.PlatformProfile{OS: "darwin"}},
-		{"zero value profile needs no sudo", system.PlatformProfile{}},
+		{
+			name:    "linux non-writable uses sudo with full path and npm prefix",
+			profile: system.PlatformProfile{OS: "linux", PnpmWritable: false},
+			lookPath: func(file string) (string, error) {
+				if file == "pi" {
+					return "/opt/nodejs/bin/pi", nil
+				}
+				return "", os.ErrNotExist
+			},
+			wantErr: false,
+			wantCommands: func() [][]string {
+				return [][]string{
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:gentle-pi"},
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:gentle-engram"},
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:pi-mcp-adapter"},
+					append([]string{"sudo", "pnpm", "dlx"}, pnpmDlxSuffix...),
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:pi-subagents"},
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:pi-intercom"},
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:@juicesharp/rpiv-ask-user-question"},
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:pi-web-access"},
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:pi-lens"},
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:@juicesharp/rpiv-todo"},
+					{"sudo", "/opt/nodejs/bin/pi", "install", "npm:pi-btw"},
+				}
+			}(),
+		},
+		{
+			name:    "linux writable uses bare pi with npm prefix",
+			profile: system.PlatformProfile{OS: "linux", PnpmWritable: true},
+			lookPath: func(file string) (string, error) {
+				return "/usr/local/bin/pi", nil
+			},
+			wantErr: false,
+			wantCommands: func() [][]string {
+				cmds := barePICommands()
+				cmds[3] = append([]string{"pnpm", "dlx"}, pnpmDlxSuffix...)
+				return cmds
+			}(),
+		},
+		{
+			name:    "darwin uses bare pi with npm prefix",
+			profile: system.PlatformProfile{OS: "darwin"},
+			lookPath: func(file string) (string, error) {
+				return "/usr/local/bin/pi", nil
+			},
+			wantErr: false,
+			wantCommands: func() [][]string {
+				cmds := barePICommands()
+				cmds[3] = append([]string{"pnpm", "dlx"}, pnpmDlxSuffix...)
+				return cmds
+			}(),
+		},
+		{
+			name:    "linux non-writable lookPath failure returns error",
+			profile: system.PlatformProfile{OS: "linux", PnpmWritable: false},
+			lookPath: func(file string) (string, error) {
+				return "", os.ErrNotExist
+			},
+			wantErr:      true,
+			wantCommands: nil,
+		},
 	}
 
-	a := NewAdapter()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			commands, err := a.InstallCommand(tt.profile)
-			if err != nil {
-				t.Fatalf("InstallCommand() error = %v", err)
+			a := &Adapter{
+				lookPath: tt.lookPath,
+				statPath: defaultStat,
 			}
-			if !reflect.DeepEqual(commands, wantCommands) {
-				t.Fatalf("InstallCommand(%+v)\ngot  = %v\nwant = %v", tt.profile, commands, wantCommands)
+			commands, err := a.InstallCommand(tt.profile)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("InstallCommand() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if !reflect.DeepEqual(commands, tt.wantCommands) {
+				t.Fatalf("InstallCommand(%+v)\ngot  = %v\nwant = %v", tt.profile, commands, tt.wantCommands)
 			}
 		})
 	}
