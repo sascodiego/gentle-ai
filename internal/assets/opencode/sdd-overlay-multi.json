@@ -19,7 +19,9 @@
             "sdd-archive": "allow",
             "sdd-onboard": "allow",
             "speckit-specify": "allow",
-            "speckit-plan": "allow"
+            "speckit-plan": "allow",
+            "speckit-tasks": "allow",
+            "speckit-implement": "allow"
           }
         }
       },
@@ -170,6 +172,30 @@
       "hidden": true,
       "description": "Execute the implementation planning workflow",
       "prompt": "__PROMPT_FILE_speckit-plan__",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "speckit-tasks": {
+      "mode": "subagent",
+      "hidden": true,
+      "description": "Generate dependency-ordered tasks from design artifacts",
+      "prompt": "__PROMPT_FILE_speckit-tasks__",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "speckit-implement": {
+      "mode": "subagent",
+      "hidden": true,
+      "description": "Execute the implementation plan by processing tasks",
+      "prompt": "__PROMPT_FILE_speckit-implement__",
       "tools": {
         "read": true,
         "write": true,

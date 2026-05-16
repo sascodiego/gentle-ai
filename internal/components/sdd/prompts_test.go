@@ -184,6 +184,63 @@ func TestInjectOpenCodeMultiModeOrchestratorPromptIsStillInlined(t *testing.T) {
 	}
 }
 
+// TestSpeckitPhaseOrderContainsAllPhases verifies that speckitPhaseOrder contains
+// all 4 expected spec-kit sub-agent phases: specify, plan, tasks, implement.
+func TestSpeckitPhaseOrderContainsAllPhases(t *testing.T) {
+	expected := []string{"speckit-specify", "speckit-plan", "speckit-tasks", "speckit-implement"}
+
+	if len(speckitPhaseOrder) != len(expected) {
+		t.Fatalf("speckitPhaseOrder has %d entries, want %d", len(speckitPhaseOrder), len(expected))
+	}
+
+	for i, want := range expected {
+		if speckitPhaseOrder[i] != want {
+			t.Errorf("speckitPhaseOrder[%d] = %q, want %q", i, speckitPhaseOrder[i], want)
+		}
+	}
+}
+
+// TestSpeckitSubAgentPromptContent verifies that every phase in speckitPhaseOrder
+// has a matching entry in subAgentPromptContent with correct markers.
+func TestSpeckitSubAgentPromptContent(t *testing.T) {
+	for _, phase := range speckitPhaseOrder {
+		content, ok := subAgentPromptContent[phase]
+		if !ok {
+			t.Errorf("subAgentPromptContent missing entry for %q", phase)
+			continue
+		}
+		for _, marker := range []string{"spec-kit executor", "Do NOT delegate", ".claude/skills/"} {
+			if !strings.Contains(content, marker) {
+				t.Errorf("subAgentPromptContent[%q] missing marker %q", phase, marker)
+			}
+		}
+	}
+}
+
+// TestWriteSharedPromptFilesIncludesSpeckitPhases verifies that prompt files are
+// written for all speckit sub-agents (including tasks and implement).
+func TestWriteSharedPromptFilesIncludesSpeckitPhases(t *testing.T) {
+	home := t.TempDir()
+
+	if _, err := WriteSharedPromptFiles(home); err != nil {
+		t.Fatalf("WriteSharedPromptFiles() error = %v", err)
+	}
+
+	promptDir := SharedPromptDir(home)
+	for _, phase := range speckitPhaseOrder {
+		fileName := phase + ".md"
+		path := filepath.Join(promptDir, fileName)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Errorf("speckit prompt file %q not found: %v", path, err)
+			continue
+		}
+		if info.Size() == 0 {
+			t.Errorf("speckit prompt file %q is empty", path)
+		}
+	}
+}
+
 // TestInjectOpenCodeMultiModeIdempotentWithPromptFiles verifies that the second
 // Inject call returns changed=false when prompt files are already on disk.
 func TestInjectOpenCodeMultiModeIdempotentWithPromptFiles(t *testing.T) {
