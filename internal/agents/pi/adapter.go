@@ -69,8 +69,12 @@ func (a *Adapter) Detect(_ context.Context, homeDir string) (bool, string, strin
 
 func (a *Adapter) SupportsAutoInstall() bool { return true }
 
-func (a *Adapter) InstallCommand(profile system.PlatformProfile) ([][]string, error) {
-	commands := [][]string{
+// InstallCommand returns the pi install command sequence.
+// Unlike other adapters, pi does NOT need sudo: pi install manages packages
+// under ~/.pi/npm/ (user-owned), so it works without elevated privileges
+// regardless of the global npm/pnpm prefix location.
+func (a *Adapter) InstallCommand(system.PlatformProfile) ([][]string, error) {
+	return [][]string{
 		{"pi", "install", "gentle-pi"},
 		{"pi", "install", "gentle-engram"},
 		{"pi", "install", "pi-mcp-adapter"},
@@ -82,21 +86,7 @@ func (a *Adapter) InstallCommand(profile system.PlatformProfile) ([][]string, er
 		{"pi", "install", "pi-lens"},
 		{"pi", "install", "@juicesharp/rpiv-todo"},
 		{"pi", "install", "pi-btw"},
-	}
-
-	if profile.OS == "linux" && !profile.PnpmWritable {
-		return prependSudo(commands), nil
-	}
-	return commands, nil
-}
-
-// prependSudo prepends "sudo" to every command in the slice.
-func prependSudo(commands [][]string) [][]string {
-	out := make([][]string, len(commands))
-	for i, cmd := range commands {
-		out[i] = append([]string{"sudo"}, cmd...)
-	}
-	return out
+	}, nil
 }
 
 func (a *Adapter) GlobalConfigDir(homeDir string) string { return ConfigPath(homeDir) }

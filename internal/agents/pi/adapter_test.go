@@ -140,7 +140,7 @@ func TestAdapterDetectMissingPiBinary(t *testing.T) {
 }
 
 func TestInstallCommand(t *testing.T) {
-	baseCommands := [][]string{
+	wantCommands := [][]string{
 		{"pi", "install", "gentle-pi"},
 		{"pi", "install", "gentle-engram"},
 		{"pi", "install", "pi-mcp-adapter"},
@@ -154,36 +154,16 @@ func TestInstallCommand(t *testing.T) {
 		{"pi", "install", "pi-btw"},
 	}
 
-	withSudo := make([][]string, len(baseCommands))
-	for i, cmd := range baseCommands {
-		withSudo[i] = append([]string{"sudo"}, cmd...)
-	}
-
+	// pi install manages packages under ~/.pi/npm/ (user-owned),
+	// so no profile combination should ever prepend sudo.
 	tests := []struct {
 		name    string
 		profile system.PlatformProfile
-		want    [][]string
 	}{
-		{
-			name:    "linux system pnpm prepends sudo to all commands",
-			profile: system.PlatformProfile{OS: "linux", PnpmWritable: false},
-			want:    withSudo,
-		},
-		{
-			name:    "linux user pnpm returns commands without sudo",
-			profile: system.PlatformProfile{OS: "linux", PnpmWritable: true},
-			want:    baseCommands,
-		},
-		{
-			name:    "darwin returns commands without sudo",
-			profile: system.PlatformProfile{OS: "darwin"},
-			want:    baseCommands,
-		},
-		{
-			name:    "zero value profile returns commands without sudo",
-			profile: system.PlatformProfile{},
-			want:    baseCommands,
-		},
+		{"linux system pnpm needs no sudo", system.PlatformProfile{OS: "linux", PnpmWritable: false}},
+		{"linux user pnpm needs no sudo", system.PlatformProfile{OS: "linux", PnpmWritable: true}},
+		{"darwin needs no sudo", system.PlatformProfile{OS: "darwin"}},
+		{"zero value profile needs no sudo", system.PlatformProfile{}},
 	}
 
 	a := NewAdapter()
@@ -193,8 +173,8 @@ func TestInstallCommand(t *testing.T) {
 			if err != nil {
 				t.Fatalf("InstallCommand() error = %v", err)
 			}
-			if !reflect.DeepEqual(commands, tt.want) {
-				t.Fatalf("InstallCommand(%+v)\ngot  = %v\nwant = %v", tt.profile, commands, tt.want)
+			if !reflect.DeepEqual(commands, wantCommands) {
+				t.Fatalf("InstallCommand(%+v)\ngot  = %v\nwant = %v", tt.profile, commands, wantCommands)
 			}
 		})
 	}
