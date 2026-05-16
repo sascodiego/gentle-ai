@@ -1,0 +1,35 @@
+schema_version: "1.0"
+
+extension:
+  id: engram-sync
+  name: "Engram Sync"
+  version: "1.0.0"
+  description: "Sync spec-kit artifacts to engram persistent memory for cross-session persistence"
+  author: gentleman-programming
+  license: MIT
+
+requires:
+  speckit_version: ">=0.2.0"
+  tools:
+    - name: engram
+      required: false
+
+provides:
+  commands:
+    - name: speckit.engram.sync
+      file: commands/speckit.engram.sync.md
+      description: "Sync artifacts to engram persistent memory"
+
+hooks:
+  after_plan:
+    command: speckit.engram.sync
+    optional: false
+    description: "Sync plan artifacts to engram after planning"
+
+scripts:
+  - scripts/bash/engram-sync.sh
+
+tags:
+  - "engram"
+  - "persistence"
+  - "memory"
