@@ -1,9 +1,11 @@
 package sdd
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"github.com/gentleman-programming/gentle-ai/internal/assets"
 	"github.com/gentleman-programming/gentle-ai/internal/components/filemerge"
 	"github.com/gentleman-programming/gentle-ai/internal/model"
+	"gopkg.in/yaml.v3"
 )
 
 type InjectionResult struct {
@@ -45,6 +48,11 @@ type InjectOptions struct {
 	// Used by external-single-active profile strategy integrations where
 	// external tools extend orchestrator policy/prompt at runtime.
 	PreserveOpenCodeOrchestratorPrompt bool
+
+	// SkipSpecKitExtensions disables step 3d (spec-kit extension file
+	// injection into .specify/). When false (default), embedded spec-kit
+	// extension files are written to <projectRoot>/.specify/ if it exists.
+	SkipSpecKitExtensions bool
 }
 
 // workflowInjector is an optional adapter capability: if an adapter
@@ -627,6 +635,21 @@ func Inject(homeDir string, adapter agents.Adapter, sddMode model.SDDModeID, opt
 		}
 	}
 
+	// 3d. Inject spec-kit extension files into .specify/ at the project root.
+	// This distributes spec-kit extensions (like engram-sync) through the
+	// existing install/sync/update pipeline. Only runs when .specify/ already
+	// exists — never creates it. Guard chain: SkipSpecKitExtensions →
+	// findProjectRoot → os.Stat(.specify) → fs.WalkDir → WriteFileAtomic.
+	if !opts.SkipSpecKitExtensions {
+		if projectRoot, found := findProjectRoot(opts.WorkspaceDir); found {
+			if _, statErr := os.Stat(filepath.Join(projectRoot, ".specify")); statErr == nil {
+				speckitChanged, speckitFiles := injectSpecKitExtensions(projectRoot)
+				changed = changed || speckitChanged
+				files = append(files, speckitFiles...)
+			}
+		}
+	}
+
 	// 4. Install skill-registry startup automation for agents with runtime hooks.
 	// This keeps `.atl/skill-registry.md` fresh without making the orchestrator
 	// spend tokens rescanning skills on every session. The command itself is
@@ -755,36 +778,40 @@ func inlineOpenCodeSDDPrompts(overlayBytes []byte, homeDir, settingsPath string,
 		return overlayBytes, nil
 	}
 	if preserveExistingOrchestratorPrompt {
-		existingPrompt, err := readOpenCodeAgentPrompt(settingsPath, "gentle-orchestrator")
+		prompt, hash, err := resolveOrchestratorPrompt(settingsPath, "gentle-orchestrator", true)
 		if err != nil {
 			return nil, err
 		}
-		if existingPrompt == "" {
-			existingPrompt, err = readOpenCodeAgentPrompt(settingsPath, "sdd-orchestrator")
-			if err != nil {
-				return nil, err
-			}
-		}
-		if existingPrompt == "" {
-			existingPrompt, err = readMisnamedOpenCodeGentlemanSDDPrompt(settingsPath)
-			if err != nil {
-				return nil, err
-			}
-		}
-		if existingPrompt != "" {
-			orchestratorMap["prompt"] = migratePreservedOpenCodeOrchestratorPrompt(existingPrompt)
-		} else {
-			orchestratorMap["prompt"] = assets.MustRead(sddOrchestratorAsset(model.AgentOpenCode))
-		}
+		orchestratorMap["prompt"] = migratePreservedOpenCodeOrchestratorPrompt(prompt)
+		orchestratorMap["_gentle-ai-asset-hash"] = hash
 	} else {
-		orchestratorMap["prompt"] = assets.MustRead(sddOrchestratorAsset(model.AgentOpenCode))
+		embeddedAsset := assets.MustRead(sddOrchestratorAsset(model.AgentOpenCode))
+		orchestratorMap["prompt"] = embeddedAsset
+		orchestratorMap["_gentle-ai-asset-hash"] = computeAssetHash(embeddedAsset)
 	}
 
 	// Replace sub-agent prompt placeholders with {file:<absolutePath>} references.
 	// The placeholder format is __PROMPT_FILE_{phase}__ where {phase} is the agent name.
+	// SDD phases come from subAgentPhaseOrder; speckit phases are handled separately.
 	if homeDir != "" {
 		promptDir := SharedPromptDir(homeDir)
 		for _, phase := range subAgentPhaseOrder {
+			agentRaw, exists := agentsMap[phase]
+			if !exists {
+				continue
+			}
+			agentMap, ok := agentRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+			placeholder := "__PROMPT_FILE_" + phase + "__"
+			if prompt, _ := agentMap["prompt"].(string); prompt == placeholder {
+				agentMap["prompt"] = "{file:" + filepath.Join(promptDir, phase+".md") + "}"
+			}
+		}
+
+		// Handle speckit sub-agent placeholders independently (not in profilePhaseOrder).
+		for _, phase := range speckitPhaseOrder {
 			agentRaw, exists := agentsMap[phase]
 			if !exists {
 				continue
@@ -895,6 +922,221 @@ func readMisnamedOpenCodeGentlemanSDDPrompt(settingsPath string) (string, error)
 	}
 	prompt, _ := agentMap["prompt"].(string)
 	return prompt, nil
+}
+
+// extensionYAML represents the extension.yml from an embedded extension.
+type extensionYAML struct {
+	Extension struct {
+		ID string `yaml:"id"`
+	} `yaml:"extension"`
+	Hooks map[string]struct {
+		Command     string `yaml:"command"`
+		Optional    bool   `yaml:"optional"`
+		Description string `yaml:"description"`
+	} `yaml:"hooks"`
+}
+
+// hookEntry is one entry in the hooks array inside .specify/extensions.yml.
+type hookEntry struct {
+	Extension   string  `yaml:"extension"`
+	Command     string  `yaml:"command"`
+	Enabled     bool    `yaml:"enabled"`
+	Optional    bool    `yaml:"optional"`
+	Prompt      string  `yaml:"prompt"`
+	Description string  `yaml:"description"`
+	Condition   *string `yaml:"condition"`
+}
+
+// extensionsFile represents the full .specify/extensions.yml structure.
+type extensionsFile struct {
+	Installed []string             `yaml:"installed"`
+	Settings  map[string]any       `yaml:"settings,omitempty"`
+	Hooks     map[string][]hookEntry `yaml:"hooks"`
+}
+
+// injectSpecKitExtensions walks the embedded "specify/" asset tree and writes
+// every file to <projectRoot>/.specify/<relPath> using WriteFileAtomic for
+// content-comparison idempotency. It also reads each extension's extension.yml,
+// parses declared hooks, and merges them into .specify/extensions.yml (adding
+// the extension to the installed list and appending any missing hook entries).
+// Errors are logged but not propagated — spec-kit extension injection must
+// never abort the Inject pipeline (REQ-5).
+// Returns (changed, files) describing what was written.
+func injectSpecKitExtensions(projectRoot string) (bool, []string) {
+	var changed bool
+	var files []string
+
+	// Collect parsed extensions during the walk so we can merge hooks after.
+	var parsedExtensions []extensionYAML
+
+	walkErr := fs.WalkDir(assets.FS, "specify", func(assetPath string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			log.Printf("speckit-extensions: walk error at %q: %v", assetPath, err)
+			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+
+		content, readErr := assets.FS.ReadFile(assetPath)
+		if readErr != nil {
+			log.Printf("speckit-extensions: read %q: %v", assetPath, readErr)
+			return nil
+		}
+
+		// relPath strips the "specify/" prefix so we can join with .specify/.
+		relPath := strings.TrimPrefix(assetPath, "specify/")
+		if relPath == assetPath {
+			return nil // shouldn't happen, but defensive
+		}
+		targetPath := filepath.Join(projectRoot, ".specify", relPath)
+
+		writeResult, writeErr := filemerge.WriteFileAtomic(targetPath, content, 0o644)
+		if writeErr != nil {
+			log.Printf("speckit-extensions: write %q: %v", targetPath, writeErr)
+			return nil
+		}
+
+		if writeResult.Changed {
+			changed = true
+			files = append(files, targetPath)
+		}
+
+		// Parse extension.yml files to collect hooks for later merge.
+		if filepath.Base(relPath) == "extension.yml" {
+			var ext extensionYAML
+			if yamlErr := yaml.Unmarshal(content, &ext); yamlErr != nil {
+				log.Printf("speckit-extensions: parse %q: %v", assetPath, yamlErr)
+				return nil
+			}
+			if ext.Extension.ID != "" && len(ext.Hooks) > 0 {
+				parsedExtensions = append(parsedExtensions, ext)
+			}
+		}
+
+		return nil
+	})
+	if walkErr != nil {
+		log.Printf("speckit-extensions: walk failed: %v", walkErr)
+	}
+
+	// Merge collected hooks into .specify/extensions.yml.
+	if len(parsedExtensions) > 0 {
+		extChanged := mergeExtensionHooks(projectRoot, parsedExtensions)
+		if extChanged {
+			changed = true
+			extYMLPath := filepath.Join(projectRoot, ".specify", "extensions.yml")
+			// Only add to files list if not already present.
+			found := false
+			for _, f := range files {
+				if f == extYMLPath {
+					found = true
+					break
+				}
+			}
+			if !found {
+				files = append(files, extYMLPath)
+			}
+		}
+	}
+
+	return changed, files
+}
+
+// mergeExtensionHooks reads .specify/extensions.yml, merges hooks and installed
+// extensions from the parsed extension configs, and writes back. Returns true
+// if the file was modified. Errors are logged, not returned.
+func mergeExtensionHooks(projectRoot string, extensions []extensionYAML) bool {
+	extYMLPath := filepath.Join(projectRoot, ".specify", "extensions.yml")
+
+	// Read and parse existing extensions.yml (or start fresh).
+	var extFile extensionsFile
+	if data, err := os.ReadFile(extYMLPath); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+		if yamlErr := yaml.Unmarshal(data, &extFile); yamlErr != nil {
+			log.Printf("speckit-extensions: parse existing extensions.yml: %v", yamlErr)
+			return false
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		log.Printf("speckit-extensions: read extensions.yml: %v", err)
+		return false
+	}
+
+	// Ensure maps are initialised.
+	if extFile.Installed == nil {
+		extFile.Installed = []string{}
+	}
+	if extFile.Hooks == nil {
+		extFile.Hooks = make(map[string][]hookEntry)
+	}
+
+	modified := false
+
+	for _, ext := range extensions {
+		extID := ext.Extension.ID
+
+		// Add to installed list if not present.
+		alreadyInstalled := false
+		for _, id := range extFile.Installed {
+			if id == extID {
+				alreadyInstalled = true
+				break
+			}
+		}
+		if !alreadyInstalled {
+			extFile.Installed = append(extFile.Installed, extID)
+			modified = true
+		}
+
+		// Merge hooks for each event.
+		for event, hookDef := range ext.Hooks {
+			if hookDef.Command == "" {
+				continue
+			}
+			existing := extFile.Hooks[event]
+
+			// Check if this hook already exists (dedup by event + extension + command).
+			duplicate := false
+			for _, entry := range existing {
+				if entry.Extension == extID && entry.Command == hookDef.Command {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
+				continue
+			}
+
+			newEntry := hookEntry{
+				Extension:   extID,
+				Command:     hookDef.Command,
+				Enabled:     true,
+				Optional:    hookDef.Optional,
+				Prompt:      fmt.Sprintf("Execute %s?", hookDef.Command),
+				Description: hookDef.Description,
+				Condition:   nil,
+			}
+			extFile.Hooks[event] = append(existing, newEntry)
+			modified = true
+		}
+	}
+
+	if !modified {
+		return false
+	}
+
+	out, yamlErr := yaml.Marshal(&extFile)
+	if yamlErr != nil {
+		log.Printf("speckit-extensions: marshal extensions.yml: %v", yamlErr)
+		return false
+	}
+
+	writeResult, writeErr := filemerge.WriteFileAtomic(extYMLPath, out, 0o644)
+	if writeErr != nil {
+		log.Printf("speckit-extensions: write extensions.yml: %v", writeErr)
+		return false
+	}
+
+	return writeResult.Changed
 }
 
 func installSkillRegistryAutomation(homeDir string, adapter agents.Adapter) (InjectionResult, error) {
@@ -1798,6 +2040,119 @@ func readExistingAgentModels(path string) (map[string]bool, error) {
 		result[name] = true
 	}
 	return result, nil
+}
+
+// computeAssetHash returns the SHA-256 hash of content, prefixed with "sha256:"
+// and hex-encoded. Used to detect whether an existing prompt matches the stock
+// embedded asset (stock) or has been modified by the user (customized).
+func computeAssetHash(content string) string {
+	h := sha256.Sum256([]byte(content))
+	return "sha256:" + fmt.Sprintf("%x", h)
+}
+
+// readOpenCodeAgentField reads a specific field from an agent definition in
+// the opencode.json settings file. Returns empty string (no error) when the
+// file does not exist, the agent key is absent, or the field is missing.
+func readOpenCodeAgentField(settingsPath, agentKey, field string) (string, error) {
+	if strings.TrimSpace(settingsPath) == "" || strings.TrimSpace(agentKey) == "" {
+		return "", nil
+	}
+
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read OpenCode settings %q: %w", settingsPath, err)
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return "", nil
+	}
+
+	agentsRaw, ok := root["agent"]
+	if !ok {
+		return "", nil
+	}
+	agentsMap, ok := agentsRaw.(map[string]any)
+	if !ok {
+		return "", nil
+	}
+	agentRaw, ok := agentsMap[agentKey]
+	if !ok {
+		return "", nil
+	}
+	agentMap, ok := agentRaw.(map[string]any)
+	if !ok {
+		return "", nil
+	}
+	value, _ := agentMap[field].(string)
+	return value, nil
+}
+
+// resolveOrchestratorPrompt implements the 3-branch stock/customized/first-run
+// detection logic for the orchestrator prompt.
+//
+// When preserve=true:
+//   - No stored hash → FIRST RUN: preserve existing prompt, set hash from current content
+//   - Computed hash == stored hash → STOCK: replace with embedded asset, new hash
+//   - Computed hash != stored hash → CUSTOMIZED: preserve existing prompt, keep stored hash
+//
+// When preserve=false, returns the embedded asset and its hash (no detection needed).
+func resolveOrchestratorPrompt(settingsPath, agentKey string, preserve bool) (prompt, hash string, err error) {
+	embeddedAsset := assets.MustRead(sddOrchestratorAsset(model.AgentOpenCode))
+
+	if !preserve {
+		return embeddedAsset, computeAssetHash(embeddedAsset), nil
+	}
+
+	// Read existing prompt from disk.
+	existingPrompt, readErr := readOpenCodeAgentPrompt(settingsPath, agentKey)
+	if readErr != nil {
+		return "", "", readErr
+	}
+	// Fallback: try legacy agent key names.
+	if existingPrompt == "" {
+		existingPrompt, readErr = readOpenCodeAgentPrompt(settingsPath, "sdd-orchestrator")
+		if readErr != nil {
+			return "", "", readErr
+		}
+	}
+	if existingPrompt == "" {
+		existingPrompt, readErr = readMisnamedOpenCodeGentlemanSDDPrompt(settingsPath)
+		if readErr != nil {
+			return "", "", readErr
+		}
+	}
+
+	// No existing prompt at all → use embedded asset (fresh install).
+	if existingPrompt == "" {
+		return embeddedAsset, computeAssetHash(embeddedAsset), nil
+	}
+
+	// Read stored hash.
+	storedHash, hashErr := readOpenCodeAgentField(settingsPath, agentKey, "_gentle-ai-asset-hash")
+	if hashErr != nil {
+		return "", "", hashErr
+	}
+
+	// Compute hash of the existing prompt (raw bytes, before migration).
+	computedHash := computeAssetHash(existingPrompt)
+
+	if storedHash == "" {
+		// FIRST RUN: no hash field → assume customized (safe default).
+		// Preserve existing prompt, set baseline hash from current content.
+		return existingPrompt, computedHash, nil
+	}
+
+	if computedHash == storedHash {
+		// STOCK: existing prompt matches what we shipped → replace with latest asset.
+		return embeddedAsset, computeAssetHash(embeddedAsset), nil
+	}
+
+	// CUSTOMIZED: hash differs → user modified the prompt → preserve it.
+	return existingPrompt, storedHash, nil
 }
 
 func readFileOrEmpty(path string) (string, error) {

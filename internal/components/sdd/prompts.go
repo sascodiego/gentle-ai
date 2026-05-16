@@ -26,12 +26,24 @@ var subAgentPromptContent = map[string]string{
 	"sdd-verify":  "You are an SDD executor for the verify phase, not the orchestrator. Do this phase's work yourself. Do NOT delegate, Do NOT call task/delegate, and Do NOT launch sub-agents. Read your skill file at ~/.config/opencode/skills/sdd-verify/SKILL.md and follow it exactly.",
 	"sdd-archive": "You are an SDD executor for the archive phase, not the orchestrator. Do this phase's work yourself. Do NOT delegate, Do NOT call task/delegate, and Do NOT launch sub-agents. Read your skill file at ~/.config/opencode/skills/sdd-archive/SKILL.md and follow it exactly.",
 	"sdd-onboard": "You are an SDD executor for the onboard phase, not the orchestrator. Do this phase's work yourself. Do NOT delegate, Do NOT call task/delegate, and Do NOT launch sub-agents. Read your skill file at ~/.config/opencode/skills/sdd-onboard/SKILL.md and follow it exactly.",
+
+	// speckit sub-agents use project-level skills (.claude/skills/) not global ones.
+	"speckit-specify": "You are a spec-kit executor for the specify phase, not the orchestrator. Do this command's work yourself. Do NOT delegate, Do NOT call task/delegate, and Do NOT launch sub-agents. Read your skill file at .claude/skills/speckit-specify/SKILL.md and follow it exactly.",
+	"speckit-plan":    "You are a spec-kit executor for the plan phase, not the orchestrator. Do this command's work yourself. Do NOT delegate, Do NOT call task/delegate, and Do NOT launch sub-agents. Read your skill file at .claude/skills/speckit-plan/SKILL.md and follow it exactly.",
 }
 
 // subAgentPhaseOrder is an alias for profilePhaseOrder (defined in profiles.go),
 // kept for backward compatibility with any code in this file that references it.
 // Both variables are in the same package and represent the same canonical list.
 var subAgentPhaseOrder = profilePhaseOrder
+
+// speckitPhaseOrder lists the spec-kit sub-agent phases. These are NOT SDD phases
+// and must not be added to profilePhaseOrder. They are handled independently for
+// prompt file writing and prompt inlining.
+var speckitPhaseOrder = []string{
+	"speckit-specify",
+	"speckit-plan",
+}
 
 // SharedPromptPhases returns the ordered list of phase names that have shared
 // prompt files in SharedPromptDir(). Used by backup target enumeration and any
@@ -40,7 +52,7 @@ func SharedPromptPhases() []string {
 	return ProfilePhaseOrder()
 }
 
-// WriteSharedPromptFiles writes the 10 SDD sub-agent prompt files to
+// WriteSharedPromptFiles writes the SDD and speckit sub-agent prompt files to
 // {homeDir}/.config/opencode/prompts/sdd/. Returns (true, nil) if any file
 // was created or changed, (false, nil) if all files already match (idempotent).
 // Uses WriteFileAtomic so the operation is safe to repeat.
@@ -48,7 +60,26 @@ func WriteSharedPromptFiles(homeDir string) (bool, error) {
 	promptDir := SharedPromptDir(homeDir)
 	anyChanged := false
 
+	// Write SDD phase prompts.
 	for _, phase := range subAgentPhaseOrder {
+		content, ok := subAgentPromptContent[phase]
+		if !ok {
+			continue
+		}
+
+		path := filepath.Join(promptDir, phase+".md")
+		result, err := filemerge.WriteFileAtomic(path, []byte(content), 0o644)
+		if err != nil {
+			return false, err
+		}
+
+		if result.Changed {
+			anyChanged = true
+		}
+	}
+
+	// Write speckit phase prompts to the same directory.
+	for _, phase := range speckitPhaseOrder {
 		content, ok := subAgentPromptContent[phase]
 		if !ok {
 			continue

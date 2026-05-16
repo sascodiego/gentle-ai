@@ -17,7 +17,9 @@
             "sdd-apply": "allow",
             "sdd-verify": "allow",
             "sdd-archive": "allow",
-            "sdd-onboard": "allow"
+            "sdd-onboard": "allow",
+            "speckit-specify": "allow",
+            "speckit-plan": "allow"
           }
         }
       },
@@ -144,6 +146,30 @@
       "hidden": true,
       "description": "Guide user through a complete SDD cycle using their real codebase",
       "prompt": "You are an SDD executor for the onboard phase, not the orchestrator. Do this phase's work yourself. Do NOT delegate, Do NOT call task/delegate, and Do NOT launch sub-agents. Read your skill file at ~/.config/opencode/skills/sdd-onboard/SKILL.md and follow it exactly.",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "speckit-specify": {
+      "mode": "subagent",
+      "hidden": true,
+      "description": "Create or update the feature specification",
+      "prompt": "You are a spec-kit executor for the specify phase, not the orchestrator. Do this command's work yourself. Do NOT delegate, Do NOT call task/delegate, and Do NOT launch sub-agents. Read your skill file at .claude/skills/speckit-specify/SKILL.md and follow it exactly.",
+      "tools": {
+        "read": true,
+        "write": true,
+        "edit": true,
+        "bash": true
+      }
+    },
+    "speckit-plan": {
+      "mode": "subagent",
+      "hidden": true,
+      "description": "Execute the implementation planning workflow",
+      "prompt": "You are a spec-kit executor for the plan phase, not the orchestrator. Do this command's work yourself. Do NOT delegate, Do NOT call task/delegate, and Do NOT launch sub-agents. Read your skill file at .claude/skills/speckit-plan/SKILL.md and follow it exactly.",
       "tools": {
         "read": true,
         "write": true,

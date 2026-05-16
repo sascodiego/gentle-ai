@@ -741,6 +741,13 @@ func expectedTaskPermissions(suffix string) map[string]any {
 	for _, phase := range profilePhaseOrder {
 		permissions[phase+suffix] = "allow"
 	}
+	// Speckit permissions are only present in the default overlay (suffix="").
+	// Named profiles do NOT include speckit sub-agents.
+	if suffix == "" {
+		for _, phase := range speckitPhaseOrder {
+			permissions[phase] = "allow"
+		}
+	}
 	return permissions
 }
 

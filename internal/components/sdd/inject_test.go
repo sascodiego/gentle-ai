@@ -5372,3 +5372,469 @@ func TestSpecKitExtensions_HandlesPartialExtensionsYML(t *testing.T) {
 		t.Fatal("after_plan hooks not created from partial file")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Sync Preservation Logic Fix — hash-based stock vs customization detection
+// ---------------------------------------------------------------------------
+
+// TestComputeAssetHash_Deterministic verifies that computeAssetHash returns
+// the same value for the same input every time.
+func TestComputeAssetHash_Deterministic(t *testing.T) {
+	input := "some prompt content here"
+	first := computeAssetHash(input)
+	second := computeAssetHash(input)
+	if first != second {
+		t.Fatalf("computeAssetHash is not deterministic: %q != %q", first, second)
+	}
+}
+
+// TestComputeAssetHash_EmptyString returns a sha256 hash of empty input.
+func TestComputeAssetHash_EmptyString(t *testing.T) {
+	got := computeAssetHash("")
+	if !strings.HasPrefix(got, "sha256:") {
+		t.Fatalf("expected sha256: prefix, got %q", got)
+	}
+	// sha256 of empty string is well-known
+	want := "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	if got != want {
+		t.Fatalf("empty string hash = %q, want %q", got, want)
+	}
+}
+
+// TestComputeAssetHash_DifferentInputsProduceDifferentHashes verifies collision
+// resistance for different inputs.
+func TestComputeAssetHash_DifferentInputsProduceDifferentHashes(t *testing.T) {
+	a := computeAssetHash("prompt A")
+	b := computeAssetHash("prompt B")
+	if a == b {
+		t.Fatal("different inputs produced the same hash")
+	}
+}
+
+// TestComputeAssetHash_Prefix verifies the sha256: prefix is always present.
+func TestComputeAssetHash_Prefix(t *testing.T) {
+	got := computeAssetHash("any content")
+	if !strings.HasPrefix(got, "sha256:") {
+		t.Fatalf("expected sha256: prefix, got %q", got)
+	}
+	// After prefix, should be 64 hex chars
+	hexPart := strings.TrimPrefix(got, "sha256:")
+	if len(hexPart) != 64 {
+		t.Fatalf("hex part length = %d, want 64", len(hexPart))
+	}
+}
+
+// TestReadOpenCodeAgentField_ReturnsFieldValue verifies that the function
+// returns the value of a field nested under root.agent.{agentKey}.{field}.
+func TestReadOpenCodeAgentField_ReturnsFieldValue(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "opencode.json")
+	seed := `{"agent":{"gentle-orchestrator":{"prompt":"hello","_gentle-ai-asset-hash":"sha256:abc123"}}}`
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := readOpenCodeAgentField(path, "gentle-orchestrator", "_gentle-ai-asset-hash")
+	if err != nil {
+		t.Fatalf("readOpenCodeAgentField() error = %v", err)
+	}
+	if got != "sha256:abc123" {
+		t.Fatalf("got %q, want %q", got, "sha256:abc123")
+	}
+}
+
+// TestReadOpenCodeAgentField_AbsentFieldReturnsEmpty verifies that when the
+// requested field does not exist, empty string is returned (no error).
+func TestReadOpenCodeAgentField_AbsentFieldReturnsEmpty(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "opencode.json")
+	seed := `{"agent":{"gentle-orchestrator":{"prompt":"hello"}}}`
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := readOpenCodeAgentField(path, "gentle-orchestrator", "_gentle-ai-asset-hash")
+	if err != nil {
+		t.Fatalf("readOpenCodeAgentField() error = %v", err)
+	}
+	if got != "" {
+		t.Fatalf("got %q, want empty string for absent field", got)
+	}
+}
+
+// TestReadOpenCodeAgentField_FileNotFoundReturnsEmpty verifies that when the
+// settings file does not exist, empty string is returned (no error).
+func TestReadOpenCodeAgentField_FileNotFoundReturnsEmpty(t *testing.T) {
+	got, err := readOpenCodeAgentField("/nonexistent/path.json", "gentle-orchestrator", "prompt")
+	if err != nil {
+		t.Fatalf("readOpenCodeAgentField() error = %v", err)
+	}
+	if got != "" {
+		t.Fatalf("got %q, want empty string for missing file", got)
+	}
+}
+
+// TestResolveOrchestratorPrompt_FirstRun verifies that when no stored hash
+// exists (first run), the existing prompt is preserved and the hash is set
+// from the current content.
+func TestResolveOrchestratorPrompt_FirstRun(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "opencode.json")
+	existingPrompt := "EXISTING_PROMPT_FIRST_RUN"
+	seed := fmt.Sprintf(`{"agent":{"gentle-orchestrator":{"prompt":%q}}}`, existingPrompt)
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	prompt, hash, err := resolveOrchestratorPrompt(path, "gentle-orchestrator", true)
+	if err != nil {
+		t.Fatalf("resolveOrchestratorPrompt() error = %v", err)
+	}
+	if prompt != existingPrompt {
+		t.Fatalf("prompt = %q, want %q (preserve on first run)", prompt, existingPrompt)
+	}
+	wantHash := computeAssetHash(existingPrompt)
+	if hash != wantHash {
+		t.Fatalf("hash = %q, want %q (hash from current content)", hash, wantHash)
+	}
+}
+
+// TestResolveOrchestratorPrompt_StockDetected verifies that when the stored
+// hash matches the computed hash of the existing prompt, the embedded asset
+// is returned with a new hash.
+func TestResolveOrchestratorPrompt_StockDetected(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "opencode.json")
+	existingPrompt := "STOCK_PROMPT_UNMODIFIED"
+	storedHash := computeAssetHash(existingPrompt)
+	seed := fmt.Sprintf(`{"agent":{"gentle-orchestrator":{"prompt":%q,"_gentle-ai-asset-hash":%q}}}`, existingPrompt, storedHash)
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	prompt, hash, err := resolveOrchestratorPrompt(path, "gentle-orchestrator", true)
+	if err != nil {
+		t.Fatalf("resolveOrchestratorPrompt() error = %v", err)
+	}
+	// Stock detected: should return the embedded asset, not the existing prompt
+	if prompt == existingPrompt {
+		t.Fatal("expected embedded asset prompt, got existing stock prompt — stock replacement did not happen")
+	}
+	// The new hash should be computed from the embedded asset
+	embeddedAsset := assets.MustRead(sddOrchestratorAsset(model.AgentOpenCode))
+	wantHash := computeAssetHash(embeddedAsset)
+	if hash != wantHash {
+		t.Fatalf("hash = %q, want %q (hash from embedded asset)", hash, wantHash)
+	}
+}
+
+// TestResolveOrchestratorPrompt_Customized verifies that when the stored hash
+// does NOT match the computed hash, the existing prompt is preserved and the
+// stored hash is returned unchanged.
+func TestResolveOrchestratorPrompt_Customized(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "opencode.json")
+	existingPrompt := "USER_CUSTOMIZED_PROMPT_V2"
+	storedHash := "sha256:old_hash_that_does_not_match"
+	seed := fmt.Sprintf(`{"agent":{"gentle-orchestrator":{"prompt":%q,"_gentle-ai-asset-hash":%q}}}`, existingPrompt, storedHash)
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	prompt, hash, err := resolveOrchestratorPrompt(path, "gentle-orchestrator", true)
+	if err != nil {
+		t.Fatalf("resolveOrchestratorPrompt() error = %v", err)
+	}
+	if prompt != existingPrompt {
+		t.Fatalf("prompt = %q, want %q (preserve customized)", prompt, existingPrompt)
+	}
+	if hash != storedHash {
+		t.Fatalf("hash = %q, want %q (keep stored hash for customized)", hash, storedHash)
+	}
+}
+
+// TestInlineOpenCodeSDDPrompts_PreserveStockPrompt_ReplacesWithAsset verifies
+// that when preserve=true and the existing prompt matches the stored hash
+// (stock), the overlay gets the NEW embedded asset + updated hash.
+func TestInlineOpenCodeSDDPrompts_PreserveStockPrompt_ReplacesWithAsset(t *testing.T) {
+	tmp := t.TempDir()
+	settingsPath := filepath.Join(tmp, "opencode.json")
+
+	// The existing prompt is stock (hash matches).
+	stockPrompt := assets.MustRead(sddOrchestratorAsset(model.AgentOpenCode))
+	stockHash := computeAssetHash(stockPrompt)
+	seed := fmt.Sprintf(`{"agent":{"gentle-orchestrator":{"prompt":%q,"_gentle-ai-asset-hash":%q}}}`, stockPrompt, stockHash)
+	if err := os.WriteFile(settingsPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Build a minimal overlay that references the orchestrator.
+	overlay := []byte(`{"agent":{"gentle-orchestrator":{"mode":"primary","prompt":"PLACEHOLDER"}}}`)
+
+	result, err := inlineOpenCodeSDDPrompts(overlay, tmp, settingsPath, true)
+	if err != nil {
+		t.Fatalf("inlineOpenCodeSDDPrompts() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		t.Fatalf("Unmarshal result: %v", err)
+	}
+	agentMap := parsed["agent"].(map[string]any)
+	orchMap := agentMap["gentle-orchestrator"].(map[string]any)
+
+	// The prompt should be the embedded asset (which is what stock resolves to).
+	gotPrompt := orchMap["prompt"].(string)
+	if gotPrompt != stockPrompt {
+		t.Fatalf("overlay prompt should be the embedded asset for stock content")
+	}
+
+	// The hash should be set.
+	gotHash := orchMap["_gentle-ai-asset-hash"].(string)
+	if gotHash != stockHash {
+		t.Fatalf("hash = %q, want %q", gotHash, stockHash)
+	}
+}
+
+// TestInlineOpenCodeSDDPrompts_PreserveCustomizedPrompt_KeepsExisting verifies
+// that when preserve=true and the hash differs (customized), the overlay keeps
+// the existing prompt and the stored hash.
+func TestInlineOpenCodeSDDPrompts_PreserveCustomizedPrompt_KeepsExisting(t *testing.T) {
+	tmp := t.TempDir()
+	settingsPath := filepath.Join(tmp, "opencode.json")
+
+	const customPrompt = "USER_MODIFIED_THIS_PROMPT_INTENTIONALLY"
+	storedHash := "sha256:does_not_match_anything"
+	seed := fmt.Sprintf(`{"agent":{"gentle-orchestrator":{"prompt":%q,"_gentle-ai-asset-hash":%q}}}`, customPrompt, storedHash)
+	if err := os.WriteFile(settingsPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	overlay := []byte(`{"agent":{"gentle-orchestrator":{"mode":"primary","prompt":"PLACEHOLDER"}}}`)
+
+	result, err := inlineOpenCodeSDDPrompts(overlay, tmp, settingsPath, true)
+	if err != nil {
+		t.Fatalf("inlineOpenCodeSDDPrompts() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		t.Fatalf("Unmarshal result: %v", err)
+	}
+	agentMap := parsed["agent"].(map[string]any)
+	orchMap := agentMap["gentle-orchestrator"].(map[string]any)
+
+	gotPrompt := orchMap["prompt"].(string)
+	if gotPrompt != customPrompt {
+		t.Fatalf("prompt = %q, want %q (preserve customized)", gotPrompt, customPrompt)
+	}
+
+	gotHash := orchMap["_gentle-ai-asset-hash"].(string)
+	if gotHash != storedHash {
+		t.Fatalf("hash = %q, want %q (keep stored hash)", gotHash, storedHash)
+	}
+}
+
+// TestInlineOpenCodeSDDPrompts_PreserveFirstRun_SetsBaselineHash verifies that
+// when preserve=true and no hash field exists, the overlay preserves the
+// current prompt and sets the baseline hash.
+func TestInlineOpenCodeSDDPrompts_PreserveFirstRun_SetsBaselineHash(t *testing.T) {
+	tmp := t.TempDir()
+	settingsPath := filepath.Join(tmp, "opencode.json")
+
+	const existingPrompt = "FIRST_RUN_PROMPT_NO_HASH_YET"
+	seed := fmt.Sprintf(`{"agent":{"gentle-orchestrator":{"prompt":%q}}}`, existingPrompt)
+	if err := os.WriteFile(settingsPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	overlay := []byte(`{"agent":{"gentle-orchestrator":{"mode":"primary","prompt":"PLACEHOLDER"}}}`)
+
+	result, err := inlineOpenCodeSDDPrompts(overlay, tmp, settingsPath, true)
+	if err != nil {
+		t.Fatalf("inlineOpenCodeSDDPrompts() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		t.Fatalf("Unmarshal result: %v", err)
+	}
+	agentMap := parsed["agent"].(map[string]any)
+	orchMap := agentMap["gentle-orchestrator"].(map[string]any)
+
+	gotPrompt := orchMap["prompt"].(string)
+	if gotPrompt != existingPrompt {
+		t.Fatalf("prompt = %q, want %q (preserve on first run)", gotPrompt, existingPrompt)
+	}
+
+	wantHash := computeAssetHash(existingPrompt)
+	gotHash := orchMap["_gentle-ai-asset-hash"].(string)
+	if gotHash != wantHash {
+		t.Fatalf("hash = %q, want %q (baseline hash)", gotHash, wantHash)
+	}
+}
+
+// TestInlineOpenCodeSDDPrompts_PreserveFalse_WritesAssetHash verifies that
+// when preserve=false, the hash is still computed from the embedded asset
+// and written alongside the prompt.
+func TestInlineOpenCodeSDDPrompts_PreserveFalse_WritesAssetHash(t *testing.T) {
+	tmp := t.TempDir()
+	settingsPath := filepath.Join(tmp, "opencode.json")
+	seed := `{"agent":{"gentle-orchestrator":{"prompt":"old stuff"}}}`
+	if err := os.WriteFile(settingsPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	overlay := []byte(`{"agent":{"gentle-orchestrator":{"mode":"primary","prompt":"PLACEHOLDER"}}}`)
+
+	result, err := inlineOpenCodeSDDPrompts(overlay, tmp, settingsPath, false)
+	if err != nil {
+		t.Fatalf("inlineOpenCodeSDDPrompts() error = %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		t.Fatalf("Unmarshal result: %v", err)
+	}
+	agentMap := parsed["agent"].(map[string]any)
+	orchMap := agentMap["gentle-orchestrator"].(map[string]any)
+
+	// Should use embedded asset
+	embeddedAsset := assets.MustRead(sddOrchestratorAsset(model.AgentOpenCode))
+	gotPrompt := orchMap["prompt"].(string)
+	if gotPrompt != embeddedAsset {
+		t.Fatal("preserve=false should use embedded asset")
+	}
+
+	// Hash should be set from the embedded asset
+	wantHash := computeAssetHash(embeddedAsset)
+	gotHash := orchMap["_gentle-ai-asset-hash"].(string)
+	if gotHash != wantHash {
+		t.Fatalf("hash = %q, want %q (hash from embedded asset)", gotHash, wantHash)
+	}
+}
+
+// TestInject_PreserveStockOrchestrator_UpdatesOnSecondSync verifies the full
+// end-to-end flow: first sync sets baseline hash; second sync with unchanged
+// prompt detects stock → replaces with new asset.
+func TestInject_PreserveStockOrchestrator_UpdatesOnSecondSync(t *testing.T) {
+	home := t.TempDir()
+	mockNoPackageManager(t)
+
+	settingsPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	// Pre-seed with a prompt that is NOT the current embedded asset
+	// (simulates a stock prompt from a previous version).
+	const oldStockPrompt = "OLD_STOCK_PROMPT_FROM_PREVIOUS_VERSION"
+	seed := fmt.Sprintf(`{"agent":{"gentle-orchestrator":{"mode":"primary","prompt":%q}}}`, oldStockPrompt)
+	if err := os.WriteFile(settingsPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// First sync: first run (no hash) → preserves existing prompt + sets baseline hash.
+	_, err := Inject(home, opencodeAdapter(), model.SDDModeMulti, InjectOptions{
+		PreserveOpenCodeOrchestratorPrompt: true,
+	})
+	if err != nil {
+		t.Fatalf("first Inject() error = %v", err)
+	}
+
+	// Verify first sync preserved the old stock prompt.
+	content, _ := os.ReadFile(settingsPath)
+	var root map[string]any
+	json.Unmarshal(content, &root)
+	agentMap := root["agent"].(map[string]any)
+	orch := agentMap["gentle-orchestrator"].(map[string]any)
+	if orch["prompt"] != oldStockPrompt {
+		t.Fatalf("first sync should preserve old stock prompt, got %q", orch["prompt"])
+	}
+	firstHash := orch["_gentle-ai-asset-hash"].(string)
+	if firstHash != computeAssetHash(oldStockPrompt) {
+		t.Fatalf("first sync baseline hash wrong")
+	}
+
+	// Second sync: same prompt on disk, hash matches → should detect as stock
+	// and replace with embedded asset.
+	_, err = Inject(home, opencodeAdapter(), model.SDDModeMulti, InjectOptions{
+		PreserveOpenCodeOrchestratorPrompt: true,
+	})
+	if err != nil {
+		t.Fatalf("second Inject() error = %v", err)
+	}
+
+	content, _ = os.ReadFile(settingsPath)
+	json.Unmarshal(content, &root)
+	agentMap = root["agent"].(map[string]any)
+	orch = agentMap["gentle-orchestrator"].(map[string]any)
+
+	// Second sync should replace stock prompt with embedded asset
+	embeddedAsset := assets.MustRead(sddOrchestratorAsset(model.AgentOpenCode))
+	gotPrompt := orch["prompt"].(string)
+	if gotPrompt != embeddedAsset {
+		t.Fatalf("second sync should replace stock prompt with embedded asset, got %q", gotPrompt)
+	}
+
+	// Hash should now be from the embedded asset
+	wantHash := computeAssetHash(embeddedAsset)
+	gotHash := orch["_gentle-ai-asset-hash"].(string)
+	if gotHash != wantHash {
+		t.Fatalf("second sync hash = %q, want %q", gotHash, wantHash)
+	}
+}
+
+// TestInject_PreserveCustomizedOrchestrator_NeverOverwrites verifies the full
+// end-to-end flow: customize prompt after first sync; second sync preserves
+// the custom content.
+func TestInject_PreserveCustomizedOrchestrator_NeverOverwrites(t *testing.T) {
+	home := t.TempDir()
+	mockNoPackageManager(t)
+
+	settingsPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	const initialPrompt = "INITIAL_STOCK_PROMPT"
+	seed := fmt.Sprintf(`{"agent":{"gentle-orchestrator":{"mode":"primary","prompt":%q}}}`, initialPrompt)
+	if err := os.WriteFile(settingsPath, []byte(seed), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// First sync: sets baseline hash.
+	_, err := Inject(home, opencodeAdapter(), model.SDDModeMulti, InjectOptions{
+		PreserveOpenCodeOrchestratorPrompt: true,
+	})
+	if err != nil {
+		t.Fatalf("first Inject() error = %v", err)
+	}
+
+	// User customizes the prompt after first sync.
+	const customizedPrompt = "USER_CUSTOMIZED_THIS_PROMPT_MANUALLY"
+	customizedSeed := fmt.Sprintf(`{"agent":{"gentle-orchestrator":{"mode":"primary","prompt":%q,"_gentle-ai-asset-hash":%q}}}`,
+		customizedPrompt, computeAssetHash(initialPrompt))
+	if err := os.WriteFile(settingsPath, []byte(customizedSeed), 0o644); err != nil {
+		t.Fatalf("WriteFile customized: %v", err)
+	}
+
+	// Second sync: hash won't match (prompt changed, hash is from old prompt).
+	_, err = Inject(home, opencodeAdapter(), model.SDDModeMulti, InjectOptions{
+		PreserveOpenCodeOrchestratorPrompt: true,
+	})
+	if err != nil {
+		t.Fatalf("second Inject() error = %v", err)
+	}
+
+	content, _ := os.ReadFile(settingsPath)
+	var root map[string]any
+	json.Unmarshal(content, &root)
+	agentMap := root["agent"].(map[string]any)
+	orch := agentMap["gentle-orchestrator"].(map[string]any)
+
+	gotPrompt := orch["prompt"].(string)
+	if gotPrompt != customizedPrompt {
+		t.Fatalf("second sync should preserve customized prompt, got %q", gotPrompt)
+	}
+}
