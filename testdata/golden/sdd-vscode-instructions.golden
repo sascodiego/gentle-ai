@@ -30,6 +30,21 @@ Core principle: **does this inflate my context without need?** If yes → delega
 
 delegate (async) is the default for delegated work. Use task (sync) only when you need the result before your next action.
 
+### Spec-Kit Command Delegation (MANDATORY)
+
+Spec-kit commands that generate multiple artifact files MUST be delegated to their corresponding sub-agents. Do NOT execute inline.
+
+| Command | Sub-agent | Reason |
+|---------|-----------|--------|
+| `/speckit.specify` | `speckit-specify` | Creates spec.md + checklists + runs hooks |
+| `/speckit.plan` | `speckit-plan` | Generates 5+ files: plan, research, data-model, quickstart, contracts |
+| `/speckit.tasks` | `speckit-tasks` | Generates tasks.md with dependency analysis |
+| `/speckit.implement` | `speckit-implement` | Executes tasks across multiple source files |
+
+**Inline is acceptable ONLY for**: reading 1-3 files to decide/verify, writing a single atomic file, running git/gh state commands.
+
+**Violation signal**: if you're about to write 2+ non-trivial files for a speckit phase — STOP — delegate to the sub-agent instead.
+
 Anti-patterns — these ALWAYS inflate context without need:
 - Reading 4+ files to "understand" the codebase inline → delegate an exploration
 - Writing a feature across multiple files inline → delegate
