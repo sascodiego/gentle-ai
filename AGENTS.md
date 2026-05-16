@@ -21,3 +21,24 @@ Naming convention: `gentle-ai-*` skills are repo-specific workflow skills. Unpre
 | `cognitive-doc-design` | When writing docs that must reduce cognitive load for readers or reviewers. | [`skills/cognitive-doc-design/SKILL.md`](skills/cognitive-doc-design/SKILL.md) |
 | `comment-writer` | When drafting human comments, PR feedback, issue replies, or async updates. | [`skills/comment-writer/SKILL.md`](skills/comment-writer/SKILL.md) |
 | `work-unit-commits` | When splitting implementation work into deliverable commits or chained PRs. | [`skills/work-unit-commits/SKILL.md`](skills/work-unit-commits/SKILL.md) |
+
+## Spec-Kit Delegation Rules (MANDATORY)
+
+Spec-kit commands that generate multiple artifact files MUST be delegated to their corresponding sub-agents. Do NOT execute inline.
+
+| Command | Sub-agent | Reason |
+|---------|-----------|--------|
+| `/speckit.specify` | `speckit-specify` | Creates spec.md + checklists + runs hooks |
+| `/speckit.plan` | `speckit-plan` | Generates 5+ files: plan, research, data-model, quickstart, contracts |
+| `/speckit.tasks` | `speckit-tasks` | Generates tasks.md with dependency analysis |
+| `/speckit.implement` | `speckit-implement` | Executes tasks across multiple source files |
+
+**Inline is acceptable ONLY for**: reading 1-3 files to decide/verify, writing a single atomic file, running git/gh state commands.
+
+**Violation signal**: if you're about to write 2+ non-trivial files for a speckit phase — STOP — delegate to the sub-agent instead.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at `specs/003-installer-pm-choice/plan.md`
+<!-- SPECKIT END -->

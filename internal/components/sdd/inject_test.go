@@ -18,6 +18,7 @@ import (
 	windsurfagent "github.com/gentleman-programming/gentle-ai/internal/agents/windsurf"
 	"github.com/gentleman-programming/gentle-ai/internal/assets"
 	"github.com/gentleman-programming/gentle-ai/internal/model"
+	"gopkg.in/yaml.v3"
 	// agents/cursor, agents/gemini, agents/vscode used via agents.NewAdapter()
 )
 
@@ -1196,9 +1197,9 @@ func TestInjectOpenCodeMultiMode(t *testing.T) {
 		t.Fatalf("agent key has unexpected type: %T", agentRaw)
 	}
 
-	// Multi overlay must contain gentle-orchestrator + 10 sub-agents = 11 agents.
-	if len(agentMap) != 11 {
-		t.Fatalf("agent count = %d, want 11", len(agentMap))
+	// Multi overlay must contain gentle-orchestrator + 10 SDD sub-agents + 2 speckit sub-agents = 13 agents.
+	if len(agentMap) != 13 {
+		t.Fatalf("agent count = %d, want 13", len(agentMap))
 	}
 
 	// Verify gentle-orchestrator is present.
@@ -1378,12 +1379,12 @@ func TestInjectOpenCodeEmptySDDModeDefaultsSingle(t *testing.T) {
 		t.Fatalf("agent key has unexpected type: %T", agentRaw)
 	}
 
-	// Empty mode defaults to single — gentle-orchestrator + 10 sub-agents = 11 agents.
+	// Empty mode defaults to single — gentle-orchestrator + 10 SDD sub-agents + 2 speckit sub-agents = 13 agents.
 	if _, ok := agentMap["gentle-orchestrator"]; !ok {
 		t.Fatal("missing gentle-orchestrator agent")
 	}
-	if len(agentMap) != 11 {
-		t.Fatalf("agent count = %d, want 11", len(agentMap))
+	if len(agentMap) != 13 {
+		t.Fatalf("agent count = %d, want 13", len(agentMap))
 	}
 
 	// Verify orchestrator mode is "primary".
@@ -4638,6 +4639,259 @@ func TestEnsureClaudeSkillRegistryHookRejectsMalformedSettings(t *testing.T) {
 	}
 }
 
+// --- Spec-Kit Extensions (step 3d) tests ---
+
+func TestInject_SpecKitExtensionsWrittenToProject(t *testing.T) {
+	// REQ-2 happy path: project has .specify/ at root, embedded files are written.
+	tmpDir := t.TempDir()
+
+	// Create a project root marker so findProjectRoot finds it.
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	// Create .specify/ directory so step 3d doesn't skip.
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.specify) error = %v", err)
+	}
+
+	home := t.TempDir()
+	result, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	// Step 3d should have written files — the result includes changes from ALL steps,
+	// so we verify the spec-kit specific files exist on disk.
+	extYmlPath := filepath.Join(tmpDir, ".specify", "extensions", "engram-sync", "extension.yml")
+	content, readErr := os.ReadFile(extYmlPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(extension.yml) error = %v; spec-kit extension files were not written", readErr)
+	}
+	expectedContent := assets.MustRead("specify/extensions/engram-sync/extension.yml")
+	if string(content) != expectedContent {
+		t.Fatalf("extension.yml content mismatch:\ngot:      %q\nexpected: %q", string(content), expectedContent)
+	}
+
+	scriptPath := filepath.Join(tmpDir, ".specify", "extensions", "engram-sync", "scripts", "bash", "engram-sync.sh")
+	scriptContent, scriptErr := os.ReadFile(scriptPath)
+	if scriptErr != nil {
+		t.Fatalf("ReadFile(engram-sync.sh) error = %v", scriptErr)
+	}
+	expectedScript := assets.MustRead("specify/extensions/engram-sync/scripts/bash/engram-sync.sh")
+	if string(scriptContent) != expectedScript {
+		t.Fatalf("engram-sync.sh content mismatch:\ngot:      %q\nexpected: %q", string(scriptContent), expectedScript)
+	}
+
+	// Verify that spec-kit file paths appear in result.Files.
+	hasExtYml := false
+	hasScript := false
+	for _, f := range result.Files {
+		if strings.HasSuffix(f, filepath.Join(".specify", "extensions", "engram-sync", "extension.yml")) {
+			hasExtYml = true
+		}
+		if strings.HasSuffix(f, filepath.Join(".specify", "extensions", "engram-sync", "scripts", "bash", "engram-sync.sh")) {
+			hasScript = true
+		}
+	}
+	if !hasExtYml {
+		t.Fatal("extension.yml path missing from result.Files")
+	}
+	if !hasScript {
+		t.Fatal("engram-sync.sh path missing from result.Files")
+	}
+	if !result.Changed {
+		t.Fatal("Inject() changed = false, expected true when spec-kit extensions are written")
+	}
+}
+
+func TestInject_SpecKitExtensionsSkippedWithoutWorkspaceDir(t *testing.T) {
+	// REQ-2 skip: no workspace dir — step 3d should be silently skipped.
+	home := t.TempDir()
+
+	result, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: ""})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	// Verify no .specify paths in result.Files from step 3d.
+	for _, f := range result.Files {
+		if strings.Contains(f, ".specify") {
+			t.Fatalf("found .specify path %q in result.Files — step 3d should be skipped without WorkspaceDir", f)
+		}
+	}
+}
+
+func TestInject_SpecKitExtensionsSkippedWithoutDotSpecify(t *testing.T) {
+	// REQ-2 skip: project root found but no .specify/ directory.
+	tmpDir := t.TempDir()
+
+	// Project root marker but NO .specify/ directory.
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+
+	home := t.TempDir()
+	result, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	// Verify no .specify paths were created.
+	for _, f := range result.Files {
+		if strings.Contains(f, ".specify") {
+			t.Fatalf("found .specify path %q in result.Files — step 3d should be skipped when .specify/ does not exist", f)
+		}
+	}
+
+	// Also verify that .specify/ was NOT created by the injection.
+	specifyPath := filepath.Join(tmpDir, ".specify")
+	if _, statErr := os.Stat(specifyPath); !os.IsNotExist(statErr) {
+		t.Fatal(".specify/ directory was created — step 3d must NEVER create it")
+	}
+}
+
+func TestInject_SpecKitExtensionsSkippedWhenFlagSet(t *testing.T) {
+	// REQ-3: SkipSpecKitExtensions flag disables injection entirely.
+	tmpDir := t.TempDir()
+
+	// Create project root marker and .specify/ directory.
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.specify) error = %v", err)
+	}
+
+	home := t.TempDir()
+	result, err := Inject(home, claudeAdapter(), "", InjectOptions{
+		WorkspaceDir:          tmpDir,
+		SkipSpecKitExtensions: true,
+	})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	// Verify no spec-kit extension files were written.
+	for _, f := range result.Files {
+		if strings.Contains(f, ".specify") {
+			t.Fatalf("found .specify path %q in result.Files — step 3d should be skipped when SkipSpecKitExtensions is true", f)
+		}
+	}
+
+	extYmlPath := filepath.Join(tmpDir, ".specify", "extensions", "engram-sync", "extension.yml")
+	if _, statErr := os.Stat(extYmlPath); !os.IsNotExist(statErr) {
+		t.Fatal("extension.yml was written despite SkipSpecKitExtensions=true")
+	}
+}
+
+func TestInject_SpecKitExtensionsIdempotent(t *testing.T) {
+	// REQ-2 idempotency: injecting twice reports no changes on second run
+	// for the spec-kit extension files.
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.specify) error = %v", err)
+	}
+
+	home := t.TempDir()
+
+	// First injection — writes spec-kit files.
+	_, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() first error = %v", err)
+	}
+
+	// Second injection — spec-kit files should be identical, so no change.
+	second, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() second error = %v", err)
+	}
+
+	// The overall Changed may be false since ALL steps are idempotent.
+	// Verify the spec-kit files didn't change by reading content.
+	extYmlPath := filepath.Join(tmpDir, ".specify", "extensions", "engram-sync", "extension.yml")
+	firstContent, _ := os.ReadFile(extYmlPath)
+
+	// Compare against embedded asset — should still match exactly.
+	expectedContent := assets.MustRead("specify/extensions/engram-sync/extension.yml")
+	if string(firstContent) != expectedContent {
+		t.Fatalf("extension.yml was modified on second injection")
+	}
+
+	if second.Changed {
+		// If the overall result reports changed, check if it's from spec-kit.
+		// The overall changed may be true from other steps if home was different.
+		// For a clean idempotency check, compare file lists.
+		t.Logf("Second inject reported changed=true — checking spec-kit files specifically")
+	}
+
+	// More precise: verify no spec-kit files appear in second result.Files that
+	// weren't there before, meaning step 3d didn't change anything.
+	// Since filemerge.WriteFileAtomic is content-comparison based, if content
+	// matches, writeResult.Changed is false and files aren't added to result.
+	for _, f := range second.Files {
+		if strings.Contains(f, ".specify") {
+			t.Fatalf("spec-kit file %q appeared in second result.Files — step 3d is not idempotent", f)
+		}
+	}
+}
+
+func TestInject_SpecKitExtensionsOverwritesExisting(t *testing.T) {
+	// REQ-2 overwrite: pre-existing modified files get overwritten with embedded content.
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify", "extensions", "engram-sync"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	// Pre-write a modified extension.yml.
+	modifiedContent := "MODIFIED_CONTENT_NOT_MATCHING_EMBEDDED"
+	extYmlPath := filepath.Join(tmpDir, ".specify", "extensions", "engram-sync", "extension.yml")
+	if err := os.WriteFile(extYmlPath, []byte(modifiedContent), 0o644); err != nil {
+		t.Fatalf("WriteFile(modified) error = %v", err)
+	}
+
+	home := t.TempDir()
+	result, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	// Verify the file was overwritten with embedded content.
+	content, readErr := os.ReadFile(extYmlPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(extension.yml) error = %v", readErr)
+	}
+	expectedContent := assets.MustRead("specify/extensions/engram-sync/extension.yml")
+	if string(content) != expectedContent {
+		t.Fatalf("extension.yml was not overwritten:\ngot:      %q\nexpected: %q", string(content), expectedContent)
+	}
+	if string(content) == modifiedContent {
+		t.Fatal("extension.yml still contains the modified content — was not overwritten")
+	}
+
+	// Verify this specific file change was detected.
+	foundInFiles := false
+	for _, f := range result.Files {
+		if strings.HasSuffix(f, filepath.Join(".specify", "extensions", "engram-sync", "extension.yml")) {
+			foundInFiles = true
+			break
+		}
+	}
+	if !foundInFiles {
+		t.Fatal("overwritten extension.yml path missing from result.Files")
+	}
+	if !result.Changed {
+		t.Fatal("Inject() changed = false despite overwriting a modified file")
+	}
+}
+
 func TestEnsureClaudeSkillRegistryHookRejectsUnexpectedHookSchema(t *testing.T) {
 	home := t.TempDir()
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
@@ -4645,7 +4899,7 @@ func TestEnsureClaudeSkillRegistryHookRejectsUnexpectedHookSchema(t *testing.T) 
 		t.Fatal(err)
 	}
 	original := []byte(`{"hooks":{"UserPromptSubmit":{"bad":true}}}`)
-	if err := os.WriteFile(settingsPath, original, 0o644); err != nil {
+	if err := os.WriteFile(settingsPath, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	changed, err := ensureClaudeSkillRegistryHook(settingsPath)
@@ -4661,5 +4915,460 @@ func TestEnsureClaudeSkillRegistryHookRejectsUnexpectedHookSchema(t *testing.T) 
 	}
 	if string(after) != string(original) {
 		t.Fatalf("settings were modified: %q", after)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Spec-Kit Extensions: hooks merge into extensions.yml
+// ---------------------------------------------------------------------------
+
+// TestSpecKitExtensions_MergesHooksIntoExtensionsYML verifies the happy path:
+// engram-sync extension hooks are added to .specify/extensions.yml alongside
+// existing git hooks.
+func TestSpecKitExtensions_MergesHooksIntoExtensionsYML(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.specify) error = %v", err)
+	}
+
+	// Pre-existing extensions.yml with git hooks.
+	existing := `installed:
+  - git
+settings:
+  auto_execute_hooks: true
+hooks:
+  after_specify:
+    - extension: git
+      command: speckit.git.commit
+      enabled: true
+      optional: true
+      prompt: Commit specification changes?
+      description: Auto-commit after specification
+      condition: null
+`
+	extYMLPath := filepath.Join(tmpDir, ".specify", "extensions.yml")
+	if err := os.WriteFile(extYMLPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("WriteFile(extensions.yml) error = %v", err)
+	}
+
+	home := t.TempDir()
+	_, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	data, readErr := os.ReadFile(extYMLPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(extensions.yml) error = %v", readErr)
+	}
+
+	var extFile extensionsFile
+	if yamlErr := yaml.Unmarshal(data, &extFile); yamlErr != nil {
+		t.Fatalf("Unmarshal(extensions.yml) error = %v", yamlErr)
+	}
+
+	// Verify engram-sync is in the installed list.
+	foundEngram := false
+	for _, id := range extFile.Installed {
+		if id == "engram-sync" {
+			foundEngram = true
+			break
+		}
+	}
+	if !foundEngram {
+		t.Fatal("engram-sync not in installed list")
+	}
+
+	// Verify git is still in the installed list.
+	foundGit := false
+	for _, id := range extFile.Installed {
+		if id == "git" {
+			foundGit = true
+			break
+		}
+	}
+	if !foundGit {
+		t.Fatal("git removed from installed list")
+	}
+
+	// Verify settings preserved.
+	if autoExec, ok := extFile.Settings["auto_execute_hooks"].(bool); !ok || !autoExec {
+		t.Fatal("auto_execute_hooks setting lost or changed")
+	}
+
+	// Verify git hooks are preserved in after_specify.
+	gitHookPreserved := false
+	for _, entry := range extFile.Hooks["after_specify"] {
+		if entry.Extension == "git" && entry.Command == "speckit.git.commit" {
+			gitHookPreserved = true
+			break
+		}
+	}
+	if !gitHookPreserved {
+		t.Fatal("existing git hook in after_specify was removed")
+	}
+
+	// Verify engram-sync hook was NOT added to after_specify (removed in bugfix).
+	for _, entry := range extFile.Hooks["after_specify"] {
+		if entry.Extension == "engram-sync" {
+			t.Fatal("engram-sync hook should NOT be in after_specify (only after_plan)")
+		}
+	}
+
+	// Verify engram-sync hook was added to after_plan.
+	engramAfterPlan := false
+	for _, entry := range extFile.Hooks["after_plan"] {
+		if entry.Extension == "engram-sync" && entry.Command == "speckit.engram.sync" {
+			engramAfterPlan = true
+			break
+		}
+	}
+	if !engramAfterPlan {
+		t.Fatal("engram-sync hook not found in after_plan")
+	}
+}
+
+// TestSpecKitExtensions_HooksMergeIdempotent verifies that running injection
+// twice does not duplicate hook entries.
+func TestSpecKitExtensions_HooksMergeIdempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.specify) error = %v", err)
+	}
+
+	extYMLPath := filepath.Join(tmpDir, ".specify", "extensions.yml")
+	initial := "installed: []\nhooks: {}\n"
+	if err := os.WriteFile(extYMLPath, []byte(initial), 0o644); err != nil {
+		t.Fatalf("WriteFile(extensions.yml) error = %v", err)
+	}
+
+	home := t.TempDir()
+
+	// First injection.
+	_, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() first error = %v", err)
+	}
+
+	data1, _ := os.ReadFile(extYMLPath)
+	var extFile1 extensionsFile
+	if err := yaml.Unmarshal(data1, &extFile1); err != nil {
+		t.Fatalf("Unmarshal after first: %v", err)
+	}
+
+	// Second injection.
+	_, err = Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() second error = %v", err)
+	}
+
+	data2, _ := os.ReadFile(extYMLPath)
+	var extFile2 extensionsFile
+	if err := yaml.Unmarshal(data2, &extFile2); err != nil {
+		t.Fatalf("Unmarshal after second: %v", err)
+	}
+
+	// Count hooks — should be the same after both injections.
+	countAfterSpecify1 := len(extFile1.Hooks["after_specify"])
+	countAfterSpecify2 := len(extFile2.Hooks["after_specify"])
+	if countAfterSpecify1 != countAfterSpecify2 {
+		t.Fatalf("after_specify hook count changed after second injection: first=%d, second=%d",
+			countAfterSpecify1, countAfterSpecify2)
+	}
+
+	countAfterPlan1 := len(extFile1.Hooks["after_plan"])
+	countAfterPlan2 := len(extFile2.Hooks["after_plan"])
+	if countAfterPlan1 != countAfterPlan2 {
+		t.Fatalf("after_plan hook count changed after second injection: first=%d, second=%d",
+			countAfterPlan1, countAfterPlan2)
+	}
+
+	// Verify only one engram-sync entry per event.
+	// engram-sync should only be in after_plan (not after_specify).
+	for _, event := range []string{"after_plan"} {
+		count := 0
+		for _, entry := range extFile2.Hooks[event] {
+			if entry.Extension == "engram-sync" {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("event %q has %d engram-sync entries, want 1", event, count)
+		}
+	}
+	// Verify after_specify does NOT have engram-sync.
+	for _, entry := range extFile2.Hooks["after_specify"] {
+		if entry.Extension == "engram-sync" {
+			t.Fatal("engram-sync should NOT be in after_specify (only after_plan)")
+		}
+	}
+}
+
+// TestSpecKitExtensions_PreservesExistingHooks verifies that existing hooks
+// (e.g., git hooks) are not removed when engram-sync hooks are merged in.
+func TestSpecKitExtensions_PreservesExistingHooks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.specify) error = %v", err)
+	}
+
+	// Pre-existing extensions.yml with git hooks in multiple events.
+	existing := `installed:
+  - git
+hooks:
+  before_specify:
+    - extension: git
+      command: speckit.git.feature
+      enabled: true
+      optional: false
+      prompt: Execute speckit.git.feature?
+      description: Create feature branch before specification
+      condition: null
+  after_specify:
+    - extension: git
+      command: speckit.git.commit
+      enabled: true
+      optional: true
+      prompt: Commit specification changes?
+      description: Auto-commit after specification
+      condition: null
+  after_plan:
+    - extension: git
+      command: speckit.git.commit
+      enabled: true
+      optional: true
+      prompt: Commit plan changes?
+      description: Auto-commit after implementation planning
+      condition: null
+`
+	extYMLPath := filepath.Join(tmpDir, ".specify", "extensions.yml")
+	if err := os.WriteFile(extYMLPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("WriteFile(extensions.yml) error = %v", err)
+	}
+
+	home := t.TempDir()
+	_, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	data, readErr := os.ReadFile(extYMLPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(extensions.yml) error = %v", readErr)
+	}
+
+	var extFile extensionsFile
+	if yamlErr := yaml.Unmarshal(data, &extFile); yamlErr != nil {
+		t.Fatalf("Unmarshal(extensions.yml) error = %v", yamlErr)
+	}
+
+	// Verify all original git hooks are preserved.
+	gitFeatureFound := false
+	for _, entry := range extFile.Hooks["before_specify"] {
+		if entry.Extension == "git" && entry.Command == "speckit.git.feature" {
+			gitFeatureFound = true
+			break
+		}
+	}
+	if !gitFeatureFound {
+		t.Fatal("git before_specify hook was removed")
+	}
+
+	gitSpecifyCommitFound := false
+	for _, entry := range extFile.Hooks["after_specify"] {
+		if entry.Extension == "git" && entry.Command == "speckit.git.commit" {
+			gitSpecifyCommitFound = true
+			break
+		}
+	}
+	if !gitSpecifyCommitFound {
+		t.Fatal("git after_specify commit hook was removed")
+	}
+
+	gitPlanCommitFound := false
+	for _, entry := range extFile.Hooks["after_plan"] {
+		if entry.Extension == "git" && entry.Command == "speckit.git.commit" {
+			gitPlanCommitFound = true
+			break
+		}
+	}
+	if !gitPlanCommitFound {
+		t.Fatal("git after_plan commit hook was removed")
+	}
+}
+
+// TestSpecKitExtensions_CreatesExtensionsYMLWhenMissing verifies that when
+// .specify/extensions.yml doesn't exist, a new one is created with the
+// correct structure.
+func TestSpecKitExtensions_CreatesExtensionsYMLWhenMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.specify) error = %v", err)
+	}
+
+	// Do NOT create extensions.yml — it should be created by injection.
+
+	home := t.TempDir()
+	_, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	extYMLPath := filepath.Join(tmpDir, ".specify", "extensions.yml")
+	data, readErr := os.ReadFile(extYMLPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(extensions.yml) error = %v — file was not created", readErr)
+	}
+
+	var extFile extensionsFile
+	if yamlErr := yaml.Unmarshal(data, &extFile); yamlErr != nil {
+		t.Fatalf("Unmarshal(extensions.yml) error = %v", yamlErr)
+	}
+
+	// Verify basic structure.
+	if extFile.Installed == nil {
+		t.Fatal("installed list is nil")
+	}
+	if extFile.Hooks == nil {
+		t.Fatal("hooks map is nil")
+	}
+
+	// Verify engram-sync is installed.
+	found := false
+	for _, id := range extFile.Installed {
+		if id == "engram-sync" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("engram-sync not in installed list")
+	}
+
+	// Verify hooks were created — engram-sync only in after_plan now.
+	if len(extFile.Hooks["after_plan"]) == 0 {
+		t.Fatal("after_plan hooks empty")
+	}
+}
+
+// TestSpecKitExtensions_HandlesEmptyExtensionsYML verifies that an empty
+// extensions.yml file is handled gracefully.
+func TestSpecKitExtensions_HandlesEmptyExtensionsYML(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.specify) error = %v", err)
+	}
+
+	// Write an empty file.
+	extYMLPath := filepath.Join(tmpDir, ".specify", "extensions.yml")
+	if err := os.WriteFile(extYMLPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("WriteFile(empty) error = %v", err)
+	}
+
+	home := t.TempDir()
+	_, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	data, readErr := os.ReadFile(extYMLPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(extensions.yml) error = %v", readErr)
+	}
+
+	var extFile extensionsFile
+	if yamlErr := yaml.Unmarshal(data, &extFile); yamlErr != nil {
+		t.Fatalf("Unmarshal(extensions.yml) error = %v", yamlErr)
+	}
+
+	// Verify engram-sync is in installed list.
+	found := false
+	for _, id := range extFile.Installed {
+		if id == "engram-sync" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("engram-sync not in installed list after empty file handling")
+	}
+}
+
+// TestSpecKitExtensions_HandlesPartialExtensionsYML verifies that a partial
+// extensions.yml (e.g., with only `installed:` key, no hooks) is handled.
+func TestSpecKitExtensions_HandlesPartialExtensionsYML(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(go.mod) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".specify"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.specify) error = %v", err)
+	}
+
+	// Partial file — only installed list, no hooks or settings.
+	partial := "installed:\n  - git\n"
+	extYMLPath := filepath.Join(tmpDir, ".specify", "extensions.yml")
+	if err := os.WriteFile(extYMLPath, []byte(partial), 0o644); err != nil {
+		t.Fatalf("WriteFile(partial) error = %v", err)
+	}
+
+	home := t.TempDir()
+	_, err := Inject(home, claudeAdapter(), "", InjectOptions{WorkspaceDir: tmpDir})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	data, readErr := os.ReadFile(extYMLPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(extensions.yml) error = %v", readErr)
+	}
+
+	var extFile extensionsFile
+	if yamlErr := yaml.Unmarshal(data, &extFile); yamlErr != nil {
+		t.Fatalf("Unmarshal(extensions.yml) error = %v", yamlErr)
+	}
+
+	// Both git and engram-sync should be installed.
+	foundGit, foundEngram := false, false
+	for _, id := range extFile.Installed {
+		if id == "git" {
+			foundGit = true
+		}
+		if id == "engram-sync" {
+			foundEngram = true
+		}
+	}
+	if !foundGit {
+		t.Fatal("git removed from installed list")
+	}
+	if !foundEngram {
+		t.Fatal("engram-sync not added to installed list")
+	}
+
+	// Hooks should be created even though the original had none.
+	// engram-sync only has after_plan hook now.
+	if len(extFile.Hooks["after_plan"]) == 0 {
+		t.Fatal("after_plan hooks not created from partial file")
 	}
 }
